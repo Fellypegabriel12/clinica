@@ -4,7 +4,7 @@ require __DIR__ . '/../includes/config.php';
 require __DIR__ . '/../includes/marcacao.php';
 require __DIR__ . '/../includes/gestao.php';
 
-$u   = exigir_login(['admin']);   // só administradores
+$u   = exigir_login(['admin']);
 $pdo = db();
 
 const PAPEIS = ['paciente' => 'Paciente', 'rececao' => 'Receção', 'dentista' => 'Dentista', 'admin' => 'Administrador'];
@@ -21,8 +21,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $dentistaId = (int)($_POST['dentista'] ?? 0);
 
     try {
-        // CORRIGIDO: o hidden garante que o formulário veio completo
-        // (se não vier, é sinal de que algo falhou no HTML do lado do cliente)
         if (!isset($_POST['ativo_enviado'])) {
             throw new RuntimeException('Formulário incompleto. Recarrega a página e tenta outra vez.');
         }
@@ -43,7 +41,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($alvoId === $u['id'] && ($papel !== $alvo['papel'] || !$ativo)) {
             throw new RuntimeException('Não podes mudar o teu próprio papel nem desativar a tua conta.');
         }
-        // tem de sobrar pelo menos um administrador ativo
         if ($alvo['papel'] === 'admin' && (int)$alvo['ativo'] === 1 && ($papel !== 'admin' || !$ativo)) {
             $st = $pdo->prepare("SELECT COUNT(*) FROM utilizadores WHERE papel = 'admin' AND ativo = 1 AND id <> ?");
             $st->execute([$alvoId]);
@@ -52,9 +49,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
         }
 
-        // Dentista: precisa de um perfil de dentista (livre ou já seu)
+        // Dentista: precisa de um perfil livre ou já associado a este utilizador.
+        // BUGFIX (race condition): FOR UPDATE no dentistas também, para evitar que dois
+        // admins (a editar users diferentes) escolham o mesmo dentista livre em simultâneo.
         if ($papel === 'dentista') {
-            $st = $pdo->prepare('SELECT id FROM dentistas WHERE id = ? AND (utilizador_id IS NULL OR utilizador_id = ?)');
+            $st = $pdo->prepare('SELECT id FROM dentistas WHERE id = ? AND (utilizador_id IS NULL OR utilizador_id = ?) FOR UPDATE');
             $st->execute([$dentistaId, $alvoId]);
             if (!$st->fetchColumn()) {
                 throw new RuntimeException('Escolhe o perfil de dentista a associar a esta conta.');
@@ -164,7 +163,6 @@ echo estilos_gestao();
                 <form id="<?= $fid ?>" method="post" action="admin/utilizadores.php">
                     <?= csrf_campo() ?>
                     <input type="hidden" name="utilizador" value="<?= (int)$x['id'] ?>">
-                    <!-- CORRIGIDO: hidden para detetar formulário completo -->
                     <input type="hidden" name="ativo_enviado" value="1">
                     <input type="hidden" name="q" value="<?= e($q) ?>">
                     <input type="hidden" name="pagina" value="<?= $pagina ?>">

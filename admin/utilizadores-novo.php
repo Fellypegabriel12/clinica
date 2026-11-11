@@ -5,7 +5,6 @@ require __DIR__ . '/../includes/config.php';
 $u   = exigir_login(['admin']);
 $pdo = db();
 
-// Contas de staff. Pacientes registam-se na área pública (registo.php).
 const PAPEIS_PERMITIDOS = [
     'rececao'  => 'Receção',
     'dentista' => 'Dentista',
@@ -50,7 +49,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $erros[] = 'As palavras-passe não coincidem.';
     }
 
-    // Se for dentista, tem de escolher um perfil de dentista livre
+    // Pré-check rápido (feedback imediato; a garantia atómica é feita dentro da transação)
     $dentistaEscolhido = null;
     if ($form['papel'] === 'dentista' && $erros === []) {
         $st = $pdo->prepare('SELECT id FROM dentistas WHERE id = ? AND utilizador_id IS NULL');
@@ -75,6 +74,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         try {
             $pdo->beginTransaction();
 
+            // BUGFIX (race condition): re-check com FOR UPDATE dentro da transação.
+            // Sem isto, dois admins que escolhessem o mesmo dentista "livre" em simultâneo
+            // ambos passavam na validação inicial e o UPDATE final sobrescrevia a associação,
+            // deixando o primeiro utilizador sem dentista silenciosamente.
+            if ($dentistaEscolhido !== null) {
+                $stLock = $pdo->prepare('SELECT id FROM dentistas WHERE id = ? AND utilizador_id IS NULL FOR UPDATE');
+                $stLock->execute([$dentistaEscolhido]);
+                if (!$stLock->fetchColumn()) {
+                    throw new RuntimeException('O perfil de dentista escolhido já foi associado a outro utilizador. Recarrega a página.');
+                }
+            }
+
             $hash = password_hash($form['password'], PASSWORD_DEFAULT);
             $pdo->prepare(
                 'INSERT INTO utilizadores (nome_completo, email, telemovel, password_hash, papel, email_verificado_em)
@@ -82,12 +93,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             )->execute([$form['nome'], $form['email'], $form['telemovel'], $hash, $form['papel']]);
             $novoId = (int)$pdo->lastInsertId();
 
-            // Pacientes não são criados por aqui (usam registo público). Mantido por segurança.
-            if ($form['papel'] === 'paciente') {
-                throw new RuntimeException('Criação de contas de paciente deve ser feita pelo registo público.');
-            }
-
-            // Se for dentista, liga ao perfil escolhido
             if ($dentistaEscolhido !== null) {
                 $pdo->prepare('UPDATE dentistas SET utilizador_id = ? WHERE id = ?')
                     ->execute([$novoId, $dentistaEscolhido]);
@@ -97,15 +102,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             registar_admin('criar_utilizador', 'utilizadores', $novoId, $form['papel']);
             flash_definir('sucesso', 'Utilizador criado com sucesso.');
             redirecionar('admin/utilizadores.php');
-        } catch (PDOException $e) {
+        } catch (Throwable $e) {
             if ($pdo->inTransaction()) { $pdo->rollBack(); }
-            error_log('Erro ao criar utilizador: ' . $e->getMessage());
-            $erros[] = 'Ocorreu um erro. Tenta novamente.';
+            if ($e instanceof RuntimeException) {
+                $erros[] = $e->getMessage();
+            } else {
+                error_log('Erro ao criar utilizador: ' . $e->getMessage());
+                $erros[] = 'Ocorreu um erro. Tenta novamente.';
+            }
         }
     }
 }
 
-// Dentistas sem utilizador associado
 $dentistasLivres = $pdo->query(
     'SELECT id, nome_completo FROM dentistas WHERE utilizador_id IS NULL AND ativo = 1 ORDER BY nome_completo'
 )->fetchAll();
