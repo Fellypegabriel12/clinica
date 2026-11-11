@@ -1,0 +1,25 @@
+# Depend?ncias/IDE
+.vscode/
+.idea/
+*.swp
+*.tmp
+
+# Logs e tempor?rios (n?o versionar)
+logs/*
+!logs/.htaccess
+*.log
+
+# Uploads sens?veis/locais (manter estrutura e prote??o; conte?do conforme pol?tica)
+uploads/cv/*
+!uploads/cv/.htaccess
+
+# Ficheiros de sistema
+Thumbs.db
+.DS_Store
+
+# Backups/SQL fora de controlo (usar migracoes/ para mudan?as versionadas)
+*.bak
+*.old
+*.orig
+*_backup*.sql
+/clinica_dentaria.sql

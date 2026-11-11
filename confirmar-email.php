@@ -1,0 +1,143 @@
+<?php
+declare(strict_types=1);
+require __DIR__ . '/includes/config.php';
+
+if (utilizador_atual() !== null) {
+    redirecionar('area-pessoal.php');
+}
+
+$email = mb_strtolower(trim((string)($_GET['email'] ?? $_POST['email'] ?? ($_SESSION['confirmar_email_pendente'] ?? ''))));
+$erros = [];
+$sucesso = '';
+$codigoMostrado = '';
+
+// Código mostrado uma vez após registo em modo demonstração (sem envio real)
+if (!empty($_SESSION['confirmar_email_codigo_dev']) && $email !== '' && $email === mb_strtolower((string)($_SESSION['confirmar_email_pendente'] ?? ''))) {
+    $codigoMostrado = (string)$_SESSION['confirmar_email_codigo_dev'];
+    unset($_SESSION['confirmar_email_codigo_dev']);
+}
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    csrf_validar();
+    $acao = (string)($_POST['acao'] ?? 'confirmar');
+    $email = mb_strtolower(trim((string)($_POST['email'] ?? '')));
+
+    if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+        $erros[] = 'Indica um email válido.';
+    }
+
+    $pdo = db();
+
+    if ($erros === [] && $acao === 'reenviar') {
+        $st = $pdo->prepare('SELECT id, email_verificado_em, ativo FROM utilizadores WHERE email = ?');
+        $st->execute([$email]);
+        $u = $st->fetch();
+        if (!$u) {
+            $sucesso = 'Se o email estiver registado, foi enviado um novo código de confirmação.';
+        } elseif ((int)$u['ativo'] !== 1) {
+            $erros[] = 'Esta conta não está ativa.';
+        } elseif ($u['email_verificado_em'] !== null) {
+            $sucesso = 'Este email já se encontra confirmado. Podes iniciar sessão.';
+        } else {
+            $codigo = str_pad((string)random_int(0, 999999), 6, '0', STR_PAD_LEFT);
+            $hash = hash('sha256', $codigo);
+            $pdo->prepare("UPDATE tokens_conta SET usado_em = NOW() WHERE utilizador_id = ? AND tipo = 'verificar_email' AND usado_em IS NULL")
+                ->execute([(int)$u['id']]);
+            $pdo->prepare("INSERT INTO tokens_conta (utilizador_id, tipo, token_hash, expira_em) VALUES (?, 'verificar_email', ?, DATE_ADD(NOW(), INTERVAL 30 MINUTE))")
+                ->execute([(int)$u['id'], $hash]);
+            $_SESSION['confirmar_email_pendente'] = $email;
+            if (defined('MODO_DEV') && MODO_DEV) {
+                $codigoMostrado = $codigo;
+                $sucesso = 'Novo código gerado (modo demonstração, sem envio real de email).';
+            } else {
+                $sucesso = 'Pedido de confirmação registado. O envio automático de email não está configurado neste ambiente; solicita à administração o código de confirmação ou configura o envio de emails.';
+            }
+        }
+    }
+
+    if ($erros === [] && $acao === 'confirmar') {
+        $codigo = preg_replace('/\s+/', '', (string)($_POST['codigo'] ?? ''));
+        if (!preg_match('/^\d{6}$/', $codigo)) {
+            $erros[] = 'Indica o código de 6 dígitos recebido por email.';
+        } else {
+            $hash = hash('sha256', $codigo);
+            $st = $pdo->prepare(
+                "SELECT t.utilizador_id, t.expira_em, t.usado_em, u.email, u.email_verificado_em
+                   FROM tokens_conta t
+                   JOIN utilizadores u ON u.id = t.utilizador_id
+                  WHERE t.token_hash = ? AND t.tipo = 'verificar_email' AND u.email = ?
+                  LIMIT 1"
+            );
+            $st->execute([$hash, $email]);
+            $tok = $st->fetch();
+            if (!$tok) {
+                $erros[] = 'Código incorreto ou inválido. Verifica o código introduzido.';
+            } elseif ($tok['usado_em'] !== null) {
+                $erros[] = 'Este código já foi utilizado. Pede um novo código.';
+            } elseif ($tok['email_verificado_em'] !== null) {
+                $pdo->prepare('UPDATE tokens_conta SET usado_em = NOW() WHERE token_hash = ?')->execute([$hash]);
+                $sucesso = 'Este email já se encontra confirmado. Podes iniciar sessão.';
+            } elseif (strtotime((string)$tok['expira_em']) < time()) {
+                $erros[] = 'O código expirou. Pede um novo código de confirmação.';
+            } else {
+                $pdo->beginTransaction();
+                try {
+                    $pdo->prepare('UPDATE utilizadores SET email_verificado_em = NOW() WHERE id = ?')->execute([(int)$tok['utilizador_id']]);
+                    $pdo->prepare("UPDATE tokens_conta SET usado_em = NOW() WHERE utilizador_id = ? AND tipo = 'verificar_email' AND usado_em IS NULL")
+                        ->execute([(int)$tok['utilizador_id']]);
+                    $pdo->commit();
+                    unset($_SESSION['confirmar_email_pendente']);
+                    flash_definir('sucesso', 'Email confirmado com sucesso! Já podes iniciar sessão.');
+                    redirecionar('login.php');
+                } catch (Throwable $e) {
+                    if ($pdo->inTransaction()) { $pdo->rollBack(); }
+                    error_log('Erro confirmação email: ' . $e->getMessage());
+                    $erros[] = 'Ocorreu um erro ao confirmar o email. Tenta novamente.';
+                }
+            }
+        }
+    }
+}
+
+$tituloPagina = 'Confirmar email';
+require __DIR__ . '/includes/cabecalho.php';
+?>
+<section class="cartao cartao-estreito">
+    <h1>Confirmar email</h1>
+    <p class="ajuda">Introduz o código de confirmação de 6 dígitos associado ao teu email para ativar a conta.</p>
+
+    <?php foreach ($erros as $erro): ?>
+        <div class="alerta alerta-erro" role="alert"><?= e($erro) ?></div>
+    <?php endforeach; ?>
+    <?php if ($sucesso !== ''): ?>
+        <div class="alerta alerta-sucesso" role="status"><?= e($sucesso) ?></div>
+    <?php endif; ?>
+    <?php if ($codigoMostrado !== ''): ?>
+        <div class="alerta alerta-info" role="status"><strong>Código de confirmação (demonstração):</strong> <?= e($codigoMostrado) ?></div>
+    <?php endif; ?>
+
+    <form method="post" action="confirmar-email.php" novalidate>
+        <?= csrf_campo() ?>
+        <input type="hidden" name="acao" value="confirmar">
+        <div class="campo">
+            <label for="email">Email <span class="obrigatorio" aria-hidden="true">*</span></label>
+            <input type="email" id="email" name="email" required maxlength="190" autocomplete="email" value="<?= e($email) ?>">
+        </div>
+        <div class="campo">
+            <label for="codigo">Código de confirmação <span class="obrigatorio" aria-hidden="true">*</span></label>
+            <input type="text" id="codigo" name="codigo" required maxlength="6" inputmode="numeric" pattern="\d{6}" autocomplete="one-time-code" placeholder="000000">
+            <p class="ajuda">Código de 6 dígitos. Válido por 30 minutos. Se estiver errado ou expirado, pede um novo código.</p>
+        </div>
+        <button type="submit" class="botao botao-grande">Confirmar email</button>
+    </form>
+
+    <form method="post" action="confirmar-email.php" style="margin-top:1rem;">
+        <?= csrf_campo() ?>
+        <input type="hidden" name="acao" value="reenviar">
+        <input type="hidden" name="email" value="<?= e($email) ?>">
+        <button type="submit" class="botao botao-secundario">Reenviar código</button>
+    </form>
+
+    <p class="texto-centro"><a href="login.php">Voltar ao início de sessão</a></p>
+</section>
+<?php require __DIR__ . '/includes/rodape.php'; ?>

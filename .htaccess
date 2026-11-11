@@ -1,0 +1,21 @@
+# Bloquear acesso a ficheiros sensiveis
+<FilesMatch "(?i)\.(sql|sqlite|db|bak|old|orig|log|ini|env|yml|yaml)$">
+  <IfModule mod_authz_core.c>
+    Require all denied
+  </IfModule>
+  <IfModule !mod_authz_core.c>
+    Deny from all
+  </IfModule>
+</FilesMatch>
+
+# Proteger configuracao/controlo e documentacao interna sensivel
+<FilesMatch "(?i)^(\.git|\.gitignore|\.htaccess|composer\.(json|lock)|package(-lock)?\.json|RELATORIO-AUDITORIA\.md)$">
+  <IfModule mod_authz_core.c>
+    Require all denied
+  </IfModule>
+  <IfModule !mod_authz_core.c>
+    Deny from all
+  </IfModule>
+</FilesMatch>
+
+Options -Indexes

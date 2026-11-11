@@ -1,0 +1,2 @@
+﻿# Impedir listagem de diretórios em uploads
+Options -Indexes
