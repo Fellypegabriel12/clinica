@@ -10,7 +10,6 @@ $tecnologia    = config_valor_texto($pdo, 'clinica_tecnologia', '');
 $instalacoes   = config_valor_texto($pdo, 'clinica_instalacoes', '');
 $compromissos  = config_valor_texto($pdo, 'clinica_compromissos', '');
 
-// Se as configurações estiverem vazias, usamos textos por omissão
 if ($filosofia === '') {
     $filosofia = 'A nossa abordagem assenta em três pilares: rigor clínico, transparência e proximidade. '
                . 'Explicamos cada passo do tratamento, apresentamos alternativas e acompanhamos o paciente ao longo do tempo. '
@@ -35,6 +34,10 @@ if ($compromissos === '') {
 
 $listaCompromissos = array_filter(array_map('trim', explode("\n", $compromissos)));
 
+// BUGFIX: "Portimão" estava hardcoded. Passa a usar a mesma fonte de verdade
+// que o resto do site (clinica_dado, com override da BD).
+$moradaClinica = clinica_dado($pdo, 'clinica_morada', CLINICA_MORADA);
+
 $tituloPagina = 'A Nossa Clínica';
 require __DIR__ . '/includes/cabecalho.php';
 ?>
@@ -44,9 +47,9 @@ require __DIR__ . '/includes/cabecalho.php';
 <section class="cartao seccao">
     <h2>Quem somos</h2>
     <p>
-        A <strong><?= e(config_valor_texto($pdo, 'clinica_nome', CLINICA_NOME)) ?></strong> é uma clínica dentária em Portimão,
-        registada na Entidade Reguladora da Saúde (ERS) com o n.º <?= e(config_valor_texto($pdo, 'clinica_ers', CLINICA_ERS)) ?>
-        e com direção clínica assegurada por <?= e(config_valor_texto($pdo, 'clinica_diretor', CLINICA_DIRETOR)) ?> (<?= e(config_valor_texto($pdo, 'clinica_diretor_omd', CLINICA_DIRETOR_OMD)) ?>).
+        A <strong><?= e(clinica_dado($pdo, 'clinica_nome', CLINICA_NOME)) ?></strong> é uma clínica dentária em <?= e($moradaClinica) ?>,
+        registada na Entidade Reguladora da Saúde (ERS) com o n.º <?= e(clinica_dado($pdo, 'clinica_ers', CLINICA_ERS)) ?>
+        e com direção clínica assegurada por <?= e(clinica_dado($pdo, 'clinica_diretor', CLINICA_DIRETOR)) ?> (<?= e(clinica_dado($pdo, 'clinica_diretor_omd', CLINICA_DIRETOR_OMD)) ?>).
     </p>
     <p>
         A nossa missão é prestar cuidados de medicina dentária de qualidade, com

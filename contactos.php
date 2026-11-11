@@ -8,18 +8,22 @@ $erros = [];
 $form  = ['nome' => '', 'email' => '', 'telemovel' => '', 'assunto' => '', 'mensagem' => ''];
 $enviado = false;
 
-// Horário por dia (igual à homepage)
 $porDia = [];
 $linhas = $pdo->query('SELECT dia_semana, hora_inicio, hora_fim FROM horarios_funcionamento ORDER BY dia_semana, hora_inicio')->fetchAll();
 foreach ($linhas as $h) {
     $porDia[(int)$h['dia_semana']][] = substr($h['hora_inicio'], 0, 5) . ' – ' . substr($h['hora_fim'], 0, 5);
 }
 
-// Mapa (configurável no admin; cai para Portimão se estiver vazio)
-$mapaEmbed = config_valor_texto($pdo, 'mapa_embed_url', 'https://www.google.com/maps?q=Portim%C3%A3o%2C%20Portugal&output=embed');
+// BUGFIX: a) a morada na página vinha da CONSTANTE em vez de clinica_dado
+//         b) o mapa fallback mostrava Portimão em vez da morada configurada.
+$moradaClinica = clinica_dado($pdo, 'clinica_morada', CLINICA_MORADA);
+$mapaEmbed = config_valor_texto(
+    $pdo,
+    'mapa_embed_url',
+    'https://www.google.com/maps?q=' . rawurlencode($moradaClinica) . '&output=embed'
+);
 $mapaLink  = config_valor_texto($pdo, 'mapa_link', '');
 
-// Contactos configuráveis (cai para as constantes se estiverem vazios)
 $contactoEmail    = config_valor_texto($pdo, 'contacto_email', CLINICA_EMAIL);
 $contactoTelefone = config_valor_texto($pdo, 'contacto_telefone', CLINICA_TELEFONE);
 
@@ -48,7 +52,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $erros[] = 'A mensagem deve ter entre 10 e 5000 caracteres.';
     }
 
-    // Anti-spam simples: máximo 3 mensagens por IP em 1 hora
     if ($erros === []) {
         $ip = ip_cliente();
         $st = $pdo->prepare('SELECT COUNT(*) FROM mensagens_contacto WHERE ip = ? AND criado_em > (NOW() - INTERVAL 1 HOUR)');
@@ -81,11 +84,10 @@ require __DIR__ . '/includes/cabecalho.php';
 
 <h1 data-animar="up"><?= e(conteudo('contactos_titulo', 'Contactos')) ?></h1>
 
-<!-- 3 cartões lado a lado: Onde estamos | Horário | Mapa -->
 <section class="seccao grelha-info" data-stagger="100">
     <div class="cartao" data-animar="up">
         <h2>Onde estamos</h2>
-        <p><?= e(CLINICA_MORADA) ?></p>
+        <p><?= e($moradaClinica) ?></p>
         <p>Telefone: <a href="tel:<?= e(preg_replace('/\s+/', '', $contactoTelefone)) ?>"><?= e($contactoTelefone) ?></a></p>
         <p>Email: <a href="mailto:<?= e($contactoEmail) ?>"><?= e($contactoEmail) ?></a></p>
         <?php if ($mapaLink !== ''): ?>
@@ -121,7 +123,6 @@ require __DIR__ . '/includes/cabecalho.php';
     </div>
 </section>
 
-<!-- Formulário de contacto -->
 <section class="cartao seccao" data-animar="up">
     <h2>Envia-nos uma mensagem</h2>
 

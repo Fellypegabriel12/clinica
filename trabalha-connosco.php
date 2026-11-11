@@ -42,9 +42,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $erros[] = 'A mensagem não pode ter mais de 2000 caracteres.';
     }
 
+    // BUGFIX: anti-spam ANTES do upload do CV. Antes, o ficheiro era guardado
+    // em disco e só depois se verificava o limite por IP; bloqueios posteriores
+    // deixavam CVs órfãos (podiam encher o disco).
+    if ($erros === []) {
+        $ip = ip_cliente();
+        $st = $pdo->prepare('SELECT COUNT(*) FROM candidaturas WHERE ip = ? AND criado_em > (NOW() - INTERVAL 1 HOUR)');
+        $st->execute([$ip]);
+        if ((int)$st->fetchColumn() >= 3) {
+            $erros[] = 'Já enviaste várias candidaturas. Tenta novamente daqui a uma hora.';
+        }
+    }
+
     // Upload de CV (opcional, PDF/DOC/DOCX, máx. 5 MB)
     $cvPath = null;
-    if (isset($_FILES['cv']) && ($_FILES['cv']['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_NO_FILE) {
+    if ($erros === [] && isset($_FILES['cv']) && ($_FILES['cv']['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_NO_FILE) {
         $f = $_FILES['cv'];
         if ($f['error'] !== UPLOAD_ERR_OK) {
             $erros[] = 'Não foi possível enviar o CV.';
@@ -75,16 +87,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
 
-    // Anti-spam: máximo 3 candidaturas por IP em 1 hora
-    if ($erros === []) {
-        $ip = ip_cliente();
-        $st = $pdo->prepare('SELECT COUNT(*) FROM candidaturas WHERE ip = ? AND criado_em > (NOW() - INTERVAL 1 HOUR)');
-        $st->execute([$ip]);
-        if ((int)$st->fetchColumn() >= 3) {
-            $erros[] = 'Já enviaste várias candidaturas. Tenta novamente daqui a uma hora.';
-        }
-    }
-
     if ($erros === []) {
         try {
             $pdo->prepare(
@@ -98,6 +100,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } catch (PDOException $e) {
             error_log('Erro candidatura: ' . $e->getMessage());
             $erros[] = 'Ocorreu um erro. Tenta novamente.';
+            // BUGFIX: se o INSERT falhou depois do upload, remover o ficheiro órfão.
+            if ($cvPath !== null && is_file(__DIR__ . '/' . $cvPath)) {
+                @unlink(__DIR__ . '/' . $cvPath);
+            }
         }
     }
 }
