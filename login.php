@@ -17,6 +17,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $ip       = ip_cliente();
     $pdo      = db();
 
+    // BUGFIX 2: truncar o email ANTES das COUNT queries.
+    // O INSERT já truncava para 190, mas os COUNT usavam o email inteiro,
+    // permitindo bypass do rate limit por email com emails >190 chars.
+    $emailChave = mb_substr($email, 0, 190);
+
     // --- 1. Está bloqueado por tentativas a mais? (configurável na BD)
     $maxEmail = max(1, (int)config_valor($pdo, 'max_tentativas_login', (int)MAX_TENTATIVAS_EMAIL));
     $maxIp    = max(1, (int)config_valor($pdo, 'max_tentativas_ip', (int)MAX_TENTATIVAS_IP));
@@ -27,7 +32,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
          WHERE email = ? AND sucesso = 0
            AND criado_em > (NOW() - INTERVAL ' . $bloqMin . ' MINUTE)'
     );
-    $stmt->execute([$email]);
+    $stmt->execute([$emailChave]);
     $falhasEmail = (int)$stmt->fetchColumn();
 
     $stmt = $pdo->prepare(
@@ -35,7 +40,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
          WHERE ip = ? AND sucesso = 0
            AND criado_em > (NOW() - INTERVAL ' . $bloqMin . ' MINUTE)'
     );
-    $stmt->execute([ip_cliente()]);
+    $stmt->execute([$ip]);
     $falhasIp = (int)$stmt->fetchColumn();
 
     if ($falhasEmail >= $maxEmail || $falhasIp >= $maxIp) {
@@ -52,26 +57,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($u) {
             $passwordCorreta = password_verify($password, $u['password_hash']);
         } else {
-            // Email não existe: faz na mesma uma operação "pesada" para a resposta
-            // demorar o mesmo tempo e não se perceber que o email não existe.
             password_hash($password, PASSWORD_DEFAULT);
             $passwordCorreta = false;
         }
 
         if ($u && $passwordCorreta && (int)$u['ativo'] === 1) {
-            // Exigir confirmação de email antes de permitir acesso (contas novas e não confirmadas)
             $stmtEv = $pdo->prepare('SELECT email_verificado_em FROM utilizadores WHERE id = ?');
             $stmtEv->execute([(int)$u['id']]);
             $emailVerificadoEm = $stmtEv->fetchColumn();
             if ($emailVerificadoEm === false || $emailVerificadoEm === null) {
-                // Contas no novo fluxo (têm token de verificação) exigem confirmação.
-                // Contas antigas sem qualquer token de verificação são migradas como verificadas no login.
                 $stTok = $pdo->prepare("SELECT 1 FROM tokens_conta WHERE utilizador_id = ? AND tipo = 'verificar_email' LIMIT 1");
                 $stTok->execute([(int)$u['id']]);
                 if ($stTok->fetchColumn()) {
                     $_SESSION['confirmar_email_pendente'] = $email;
                     $pdo->prepare('INSERT INTO tentativas_login (email, ip, sucesso) VALUES (?, ?, 0)')
-                        ->execute([mb_substr($email, 0, 190), $ip]);
+                        ->execute([$emailChave, $ip]);
                     flash_definir('info', 'Confirma o teu email antes de iniciar sessão. Introduz o código de confirmação.');
                     redirecionar('confirmar-email.php?email=' . urlencode($email));
                 }
@@ -80,17 +80,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
 
             // --- 3. Sucesso ---
-            session_regenerate_id(true);   // novo ID de sessão (previne session fixation)
-            unset($_SESSION['csrf']);      // novo token CSRF
+            session_regenerate_id(true);
+            unset($_SESSION['csrf']);
 
+            // BUGFIX 1: incluir 'nome_completo' para consistência com exigir_login().
             $_SESSION['utilizador'] = [
-                'id'    => (int)$u['id'],
-                'nome'  => $u['nome_completo'],
-                'papel' => $u['papel'],
-                'tema'  => $u['tema'],
+                'id'            => (int)$u['id'],
+                'nome'          => $u['nome_completo'],
+                'nome_completo' => $u['nome_completo'],
+                'papel'         => $u['papel'],
+                'tema'          => $u['tema'] ?? null,
             ];
 
-            // Se o algoritmo de hash mudou entre versões do PHP, atualiza o hash
             if (password_needs_rehash($u['password_hash'], PASSWORD_DEFAULT)) {
                 $novoHash = password_hash($password, PASSWORD_DEFAULT);
                 $pdo->prepare('UPDATE utilizadores SET password_hash = ? WHERE id = ?')
@@ -99,12 +100,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             $pdo->prepare('UPDATE utilizadores SET ultimo_login = NOW() WHERE id = ?')->execute([$u['id']]);
 
-            // Limpa as falhas deste email e regista o sucesso
-            $pdo->prepare('DELETE FROM tentativas_login WHERE email = ? AND sucesso = 0')->execute([$email]);
+            $pdo->prepare('DELETE FROM tentativas_login WHERE email = ? AND sucesso = 0')->execute([$emailChave]);
             $pdo->prepare('INSERT INTO tentativas_login (email, ip, sucesso) VALUES (?, ?, 1)')
-                ->execute([$email, $ip]);
+                ->execute([$emailChave, $ip]);
 
-            // Admin e receção vão para o painel; os outros para a área pessoal
             if (in_array($u['papel'], ['admin', 'rececao'], true)) {
                 redirecionar('admin/index.php');
             }
@@ -114,9 +113,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             redirecionar('area-pessoal.php');
         }
 
-        // --- 4. Falhou: regista e mostra mensagem genérica ---
         $pdo->prepare('INSERT INTO tentativas_login (email, ip, sucesso) VALUES (?, ?, 0)')
-            ->execute([mb_substr($email, 0, 190), $ip]);
+            ->execute([$emailChave, $ip]);
         $erro = 'Email ou palavra-passe incorretos.';
     }
 }
