@@ -17,6 +17,8 @@ $dentistas = $pdo->query('SELECT id, nome_completo FROM dentistas WHERE ativo=1 
 $tratamentos = $pdo->query('SELECT id, nome FROM tratamentos WHERE ativo=1 ORDER BY nome')->fetchAll();
 $erros = [];
 
+$rotulosPeriodo = ['manha' => 'Manhã', 'tarde' => 'Tarde', 'qualquer' => 'Qualquer'];
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     csrf_validar();
     $acao = (string)($_POST['acao'] ?? '');
@@ -31,6 +33,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $dOk = DateTime::createFromFormat('Y-m-d', $desde); $aOk = DateTime::createFromFormat('Y-m-d', $ate);
         if (!$dOk || $dOk->format('Y-m-d') !== $desde || !$aOk || $aOk->format('Y-m-d') !== $ate) { $erros[] = 'Datas inválidas.'; }
         elseif ($ate < $desde) { $erros[] = 'A data final deve ser igual ou posterior à inicial.'; }
+        // FIX: não permitir datas no passado
+        elseif ($desde < date('Y-m-d')) { $erros[] = 'A data inicial não pode ser anterior a hoje.'; }
         if (!in_array($periodo, ['manha','tarde','qualquer'], true)) { $periodo = 'qualquer'; }
         if ($erros === []) {
             $pdo->prepare("INSERT INTO lista_espera (utilizador_id,paciente_id,dentista_id,tratamento_id,data_desde,data_ate,periodo,estado) VALUES (?,?,?,?,?,?,?, 'ativa')")
@@ -68,8 +72,8 @@ echo estilos_conta();
     <div class="campo"><label for="paciente_id">Paciente</label><select id="paciente_id" name="paciente_id" required><?php foreach ($pacientes as $p): ?><option value="<?= (int)$p['id'] ?>"><?= e($p['nome_completo']) ?></option><?php endforeach; ?></select></div>
     <div class="campo"><label for="dentista_id">Dentista (opcional)</label><select id="dentista_id" name="dentista_id"><option value="0">Qualquer</option><?php foreach ($dentistas as $d): ?><option value="<?= (int)$d['id'] ?>"><?= e($d['nome_completo']) ?></option><?php endforeach; ?></select></div>
     <div class="campo"><label for="tratamento_id">Tratamento (opcional)</label><select id="tratamento_id" name="tratamento_id"><option value="0">Qualquer</option><?php foreach ($tratamentos as $t): ?><option value="<?= (int)$t['id'] ?>"><?= e($t['nome']) ?></option><?php endforeach; ?></select></div>
-    <div class="campo"><label for="data_desde">De</label><input type="date" id="data_desde" name="data_desde" required></div>
-    <div class="campo"><label for="data_ate">Até</label><input type="date" id="data_ate" name="data_ate" required></div>
+    <div class="campo"><label for="data_desde">De</label><input type="date" id="data_desde" name="data_desde" required min="<?= e(date('Y-m-d')) ?>"></div>
+    <div class="campo"><label for="data_ate">Até</label><input type="date" id="data_ate" name="data_ate" required min="<?= e(date('Y-m-d')) ?>"></div>
     <div class="campo"><label for="periodo">Período</label><select id="periodo" name="periodo"><option value="qualquer">Qualquer</option><option value="manha">Manhã</option><option value="tarde">Tarde</option></select></div>
     <button class="botao" type="submit">Registar pedido</button>
 </form></section>
@@ -78,7 +82,7 @@ echo estilos_conta();
 <?php if (!$meus): ?><div class="alerta alerta-info">Sem pedidos.</div><?php else: ?><div class="grelha grelha-larga">
 <?php foreach ($meus as $m): ?><article class="cartao">
     <strong><?= e($m['paciente']) ?></strong>
-    <div class="ajuda"><?= e($m['data_desde']) ?> a <?= e($m['data_ate']) ?> · <?= e($m['periodo']) ?></div>
+    <div class="ajuda"><?= e($m['data_desde']) ?> a <?= e($m['data_ate']) ?> · <?= e($rotulosPeriodo[$m['periodo']] ?? $m['periodo']) ?></div>
     <?php if ($m['dentista']): ?><div class="ajuda">Dentista: <?= e($m['dentista']) ?></div><?php endif; ?>
     <div>Estado: <?= e($m['estado']) ?></div>
     <?php if (in_array($m['estado'], ['ativa','notificada'], true)): ?>

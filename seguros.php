@@ -44,6 +44,16 @@ $form  = [
     'valido_de' => '', 'valido_ate' => '',
 ];
 
+// FIX (menor): helper para evitar crash em '0000-00-00'
+$fmtData = static function (?string $d): string {
+    if ($d === null || $d === '' || str_starts_with($d, '0000-00-00')) { return '—'; }
+    try { return (new DateTime($d))->format('d/m/Y'); } catch (Throwable $e) { return '—'; }
+};
+$fmtDataHora = static function (?string $d): string {
+    if ($d === null || $d === '' || str_starts_with($d, '0000-00-00')) { return '—'; }
+    try { return (new DateTime($d))->format('d/m/Y H:i'); } catch (Throwable $e) { return '—'; }
+};
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     csrf_validar();
     $acao = (string)($_POST['acao'] ?? '');
@@ -59,7 +69,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if (!in_array($form['paciente'], $idsPacientes, true)) {
             $erros[] = 'Escolhe um paciente da tua lista.';
         }
-        // Plano válido?
         $planoOk = false;
         foreach ($planosLista as $p) {
             if ($p['id'] === $form['plano']) { $planoOk = true; break; }
@@ -73,7 +82,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if (mb_strlen($form['beneficiario']) > 60) {
             $erros[] = 'O número de beneficiário é demasiado longo.';
         }
-        $dataOk = function (string $d): ?string {
+        // FIX (crítico): tipo de retorno aceita false — antes causava TypeError em datas inválidas
+        $dataOk = function (string $d): string|false|null {
             if ($d === '') { return null; }
             $dt = DateTime::createFromFormat('Y-m-d', $d);
             return ($dt && $dt->format('Y-m-d') === $d) ? $d : false;
@@ -82,7 +92,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $va = $dataOk($form['valido_ate']);
         if ($vd === false) { $erros[] = 'Data de início inválida.'; }
         if ($va === false) { $erros[] = 'Data de fim inválida.'; }
-        if ($vd && $va && $va < $vd) { $erros[] = 'A data de fim tem de ser posterior à de início.'; }
+        if (is_string($vd) && is_string($va) && $va < $vd) {
+            $erros[] = 'A data de fim tem de ser posterior à de início.';
+        }
 
         if ($erros === []) {
             try {
@@ -94,7 +106,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $form['paciente'], $form['plano'],
                     $form['apolice'] ?: null,
                     $form['beneficiario'] ?: null,
-                    $vd, $va,
+                    is_string($vd) ? $vd : null,
+                    is_string($va) ? $va : null,
                 ]);
                 registar_admin('registar_beneficio', 'beneficios_paciente', (int)$pdo->lastInsertId());
                 flash_definir('sucesso', 'Benefício registado. A clínica vai validar e o desconto será aplicado nas próximas marcações.');
@@ -108,15 +121,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     if ($acao === 'apagar') {
         $id = (int)($_POST['id'] ?? 0);
-        // Só pode apagar se ainda não estiver validado (uma vez validado, a clínica controla)
+        // FIX (médio): DELETE atómico com ownership + estado na própria query.
+        // Antes havia janela entre SELECT e DELETE onde o admin podia validar o benefício.
         $st = $pdo->prepare(
-            "SELECT bp.id FROM beneficios_paciente bp
+            "DELETE bp FROM beneficios_paciente bp
                JOIN autorizacoes_paciente a ON a.paciente_id = bp.paciente_id AND a.utilizador_id = ?
               WHERE bp.id = ? AND bp.estado_validacao IN ('registado','rejeitado')"
         );
         $st->execute([$u['id'], $id]);
-        if ($st->fetchColumn()) {
-            $pdo->prepare('DELETE FROM beneficios_paciente WHERE id = ?')->execute([$id]);
+        if ($st->rowCount() > 0) {
             registar_admin('apagar_beneficio', 'beneficios_paciente', $id);
             flash_definir('sucesso', 'Benefício removido.');
         } else {
@@ -178,10 +191,7 @@ echo estilos_conta();
                     · Beneficiário: <?= e($b['numero_beneficiario'] ?? '—') ?>
                 </span>
                 <span class="ajuda">
-                    Validade:
-                    <?= $b['valido_de'] ? e((new DateTime($b['valido_de']))->format('d/m/Y')) : '—' ?>
-                    a
-                    <?= $b['valido_ate'] ? e((new DateTime($b['valido_ate']))->format('d/m/Y')) : '—' ?>
+                    Validade: <?= e($fmtData($b['valido_de'])) ?> a <?= e($fmtData($b['valido_ate'])) ?>
                 </span>
                 <span>
                     Estado:
@@ -190,7 +200,7 @@ echo estilos_conta();
                     </span>
                 </span>
                 <?php if ($b['validado_em']): ?>
-                    <span class="ajuda">Tratado em <?= e((new DateTime($b['validado_em']))->format('d/m/Y H:i')) ?></span>
+                    <span class="ajuda">Tratado em <?= e($fmtDataHora($b['validado_em'])) ?></span>
                 <?php endif; ?>
                 <?php if ($b['notas']): ?>
                     <span class="ajuda">Notas da clínica: <?= e($b['notas']) ?></span>
