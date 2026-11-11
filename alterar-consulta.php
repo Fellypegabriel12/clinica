@@ -17,7 +17,6 @@ if ($consultaId <= 0) {
     redirecionar('minhas-marcacoes.php');
 }
 
-// Confirma que a consulta pertence a este utilizador
 $st = $pdo->prepare(
     'SELECT c.id, c.marcacao_id, c.paciente_id, c.dentista_id, c.inicio, c.fim, c.duracao_min, c.estado,
             p.nome_completo AS paciente, d.nome_completo AS dentista,
@@ -41,7 +40,6 @@ if (!in_array($consulta['estado'], ['pendente', 'confirmada'], true)) {
     redirecionar('minhas-marcacoes.php');
 }
 
-// Regra da clínica: tem de faltar pelo menos X horas
 $horasAntecedencia = config_valor($pdo, 'cancelamento_antecedencia_h', 24);
 $limiteMinimo = $agora->modify('+' . $horasAntecedencia . ' hours');
 if (utc($consulta['inicio']) < $limiteMinimo) {
@@ -49,7 +47,7 @@ if (utc($consulta['inicio']) < $limiteMinimo) {
     redirecionar('minhas-marcacoes.php');
 }
 
-// Já existe um pedido pendente para esta consulta?
+// Pré-check UX (a garantia atómica é feita dentro da transação no POST)
 $st = $pdo->prepare("SELECT 1 FROM pedidos_alteracao WHERE consulta_id = ? AND estado = 'pendente'");
 $st->execute([$consultaId]);
 if ($st->fetchColumn()) {
@@ -73,13 +71,11 @@ function ler_dia_alt(string $texto, DateTimeImmutable $hoje, DateTimeImmutable $
 
 $dia = ler_dia_alt((string)($_POST['data'] ?? $_GET['data'] ?? ''), $hoje, $maxDia);
 
-// Por defeito, o dia da consulta atual
 if ($dia === null) {
     $dia = utc($consulta['inicio'])->setTime(0, 0, 0);
     if ($dia < $hoje) { $dia = $hoje; }
 }
 
-// ---------- Estado da página ----------
 $erros = [];
 $motivoForm = '';
 
@@ -88,7 +84,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $motivoForm = mb_substr(trim((string)($_POST['motivo'] ?? '')), 0, 255);
     $novoInicio = trim((string)($_POST['novo_inicio'] ?? ''));
 
-    // Valida formato
     if (!preg_match('/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:00$/', $novoInicio)) {
         $erros[] = 'Escolhe uma nova hora da lista.';
     } else {
@@ -96,7 +91,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($diaNovo === null) {
             $erros[] = 'Data inválida.';
         } else {
-            // Verifica se a hora ainda está livre (blocos da consulta)
             $prefixo = prefixo_reserva();
             $slots = slots_do_dia($pdo, $dentistaId, $diaNovo, $prefixo);
             $chaves = blocos_da_consulta($pdo, $novoInicio, $duracaoMin);
@@ -108,16 +102,40 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     if ($erros === []) {
         try {
+            $pdo->beginTransaction();
+
+            // BUGFIX (race condition): lock atómico na consulta antes de re-verificar e inserir.
+            // Sem isto, dois POSTs simultâneos (duplo clique, duas abas) podiam ambos passar
+            // o check inicial e criar 2 pedidos pendentes para a mesma consulta.
+            $stLock = $pdo->prepare('SELECT id FROM consultas WHERE id = ? FOR UPDATE');
+            $stLock->execute([$consultaId]);
+            if (!$stLock->fetchColumn()) {
+                $pdo->rollBack();
+                flash_definir('erro', 'Consulta não encontrada.');
+                redirecionar('minhas-marcacoes.php');
+            }
+
+            // Re-check dentro do lock: se entretanto outro pedido foi criado, recusa.
+            $stCheck = $pdo->prepare("SELECT 1 FROM pedidos_alteracao WHERE consulta_id = ? AND estado = 'pendente'");
+            $stCheck->execute([$consultaId]);
+            if ($stCheck->fetchColumn()) {
+                $pdo->rollBack();
+                flash_definir('info', 'Já existe um pedido de alteração pendente para esta consulta. Aguarda a resposta da clínica.');
+                redirecionar('minhas-marcacoes.php');
+            }
+
             $pdo->prepare(
                 "INSERT INTO pedidos_alteracao (consulta_id, utilizador_id, novo_inicio, motivo)
                  VALUES (?, ?, ?, ?)"
             )->execute([$consultaId, $u['id'], $novoInicio, $motivoForm ?: null]);
 
             registar_admin('pedir_alteracao', 'consultas', $consultaId, 'de ' . $consulta['inicio'] . ' para ' . $novoInicio);
+            $pdo->commit();
 
             flash_definir('sucesso', 'Pedido de alteração enviado. A clínica vai responder em breve.');
             redirecionar('minhas-marcacoes.php');
         } catch (PDOException $e) {
+            if ($pdo->inTransaction()) { $pdo->rollBack(); }
             error_log('Erro pedir alteração: ' . $e->getMessage());
             $erros[] = 'Ocorreu um erro. Tenta novamente.';
         }
@@ -128,7 +146,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 $prefixo = prefixo_reserva();
 $slots   = slots_do_dia($pdo, $dentistaId, $dia, $prefixo);
 
-// Constrói lista de horas de início possíveis para a duração da consulta
 $opcoes = [];
 foreach ($slots as $s) {
     $chaves = blocos_da_consulta($pdo, $s['inicio'], $duracaoMin);
