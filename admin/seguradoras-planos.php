@@ -62,10 +62,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if ($planoId<=0 || $tratamentoId<=0) throw new RuntimeException('Plano/tratamento inválido.');
             $tipoDesconto = (string)($_POST['tipo_desconto'] ?? 'percentagem');
             if (!in_array($tipoDesconto, ['percentagem','valor_fixo'], true)) $tipoDesconto = 'percentagem';
-            $valor = $_POST['valor'] !== '' ? round((float)str_replace(',', '.', (string)$_POST['valor']), 2) : 0.0;
-            $precoConv = $_POST['preco_convencionado'] !== '' ? round((float)str_replace(',', '.', (string)$_POST['preco_convencionado']), 2) : null;
-            $maxComp = $_POST['valor_max_comparticipado'] !== '' ? round((float)str_replace(',', '.', (string)$_POST['valor_max_comparticipado']), 2) : null;
-            $pctComp = $_POST['percentagem_comparticipacao'] !== '' ? round((float)str_replace(',', '.', (string)$_POST['percentagem_comparticipacao']), 2) : null;
+
+            // BUGFIX (warnings): ?? '' em todos os $_POST opcionais.
+            // BUGFIX (médio): validar percentagem_comparticipacao 0-100 (HTML max é bypass).
+            // Sem clamp, guardar 200% → paciente paga 0€ na próxima marcação.
+            $valorRaw = $_POST['valor'] ?? '';
+            $precoConvRaw = $_POST['preco_convencionado'] ?? '';
+            $maxCompRaw = $_POST['valor_max_comparticipado'] ?? '';
+            $pctCompRaw = $_POST['percentagem_comparticipacao'] ?? '';
+
+            $valor = $valorRaw !== '' ? round((float)str_replace(',', '.', (string)$valorRaw), 2) : 0.0;
+            $precoConv = $precoConvRaw !== '' ? round((float)str_replace(',', '.', (string)$precoConvRaw), 2) : null;
+            $maxComp = $maxCompRaw !== '' ? round((float)str_replace(',', '.', (string)$maxCompRaw), 2) : null;
+            $pctComp = $pctCompRaw !== '' ? round((float)str_replace(',', '.', (string)$pctCompRaw), 2) : null;
+
+            if ($valor < 0) { throw new RuntimeException('Valor de desconto não pode ser negativo.'); }
+            if ($precoConv !== null && $precoConv < 0) { throw new RuntimeException('Preço convencionado não pode ser negativo.'); }
+            if ($maxComp !== null && $maxComp < 0) { throw new RuntimeException('Valor máximo comparticipado não pode ser negativo.'); }
+            if ($pctComp !== null && ($pctComp < 0 || $pctComp > 100)) { throw new RuntimeException('Percentagem de comparticipação tem de estar entre 0 e 100.'); }
+
             $cond = mb_substr(trim((string)($_POST['condicoes_especificas'] ?? '')), 0, 255);
             $ativo = isset($_POST['ativo']) ? 1 : 0;
             $pdo->prepare('INSERT INTO planos_tratamentos (plano_id,tratamento_id,tipo_desconto,valor,preco_convencionado,valor_max_comparticipado,percentagem_comparticipacao,condicoes_especificas,ativo)
