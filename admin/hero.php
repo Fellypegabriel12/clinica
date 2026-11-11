@@ -72,6 +72,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $ordem   = (int)($_POST['ordem'] ?? 0);
         $visivel = isset($_POST['visivel']) ? 1 : 0;
 
+        $nova = null; // BUGFIX (orphan): inicializar antes do try
         try {
             $nova = processar_imagem_hero($_FILES['imagem'] ?? ['error' => UPLOAD_ERR_NO_FILE]);
             if ($nova === null) {
@@ -85,8 +86,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 redirecionar('admin/hero.php');
             }
         } catch (RuntimeException $e) {
+            apagar_imagem_hero($nova);
             $erros[] = $e->getMessage();
         } catch (PDOException $e) {
+            // BUGFIX (orphan): apaga o ficheiro se o INSERT falhou
+            apagar_imagem_hero($nova);
             error_log('Erro hero: ' . $e->getMessage());
             $erros[] = 'Ocorreu um erro. Tenta novamente.';
         }

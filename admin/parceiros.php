@@ -18,11 +18,16 @@ function processar_logo_parceiro(array $f): ?string
         throw new RuntimeException('O logótipo não pode ter mais de 2 MB.');
     }
     $mime = (new finfo(FILEINFO_MIME_TYPE))->file($f['tmp_name']);
-    $ext  = ['image/jpeg' => 'jpg', 'image/png' => 'png', 'image/webp' => 'webp', 'image/svg+xml' => 'svg'];
+    // BUGFIX (segurança): SVG removido. SVG pode conter <script>; se alguém
+    // navegar diretamente para uploads/parceiros/*.svg, o browser renderiza
+    // como documento XML e executa o script → XSS armazenado. A tag <img>
+    // bloqueia scripts, mas a navegação direta não. Alternativa: parceiros
+    // que usem SVG devem converter para PNG antes do upload.
+    $ext = ['image/jpeg' => 'jpg', 'image/png' => 'png', 'image/webp' => 'webp'];
     if (!isset($ext[$mime])) {
-        throw new RuntimeException('O logótipo deve ser JPG, PNG, WEBP ou SVG.');
+        throw new RuntimeException('O logótipo deve ser JPG, PNG ou WEBP.');
     }
-    if ($ext[$mime] !== 'svg' && @getimagesize($f['tmp_name']) === false) {
+    if (@getimagesize($f['tmp_name']) === false) {
         throw new RuntimeException('Imagem inválida.');
     }
     $pasta = __DIR__ . '/../uploads/parceiros';
@@ -90,6 +95,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
 
         if ($erros === []) {
+            $novoLogo = null; // BUGFIX (orphan): inicializar antes do try para o catch poder limpar
             try {
                 $novoLogo = processar_logo_parceiro($_FILES['logo'] ?? ['error' => UPLOAD_ERR_NO_FILE]);
                 $antigo   = null;
@@ -125,8 +131,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     }
                 }
             } catch (RuntimeException $e) {
+                apagar_logo_parceiro($novoLogo);
                 $erros[] = $e->getMessage();
             } catch (PDOException $e) {
+                // BUGFIX (orphan): se o INSERT/UPDATE falhou, apaga o ficheiro recém-movido.
+                apagar_logo_parceiro($novoLogo);
                 error_log('Erro parceiro: ' . $e->getMessage());
                 $erros[] = 'Ocorreu um erro ao guardar o parceiro.';
             }
@@ -214,8 +223,8 @@ echo estilos_gestao();
             <input type="url" id="url" name="url" maxlength="255" value="<?= e($form['url']) ?>" placeholder="https://...">
         </div>
         <div class="campo">
-            <label for="logo">Logótipo <?= $form['id'] > 0 ? '(opcional para manter o atual)' : '<span class="obrigatorio">*</span>' ?></label>
-            <input type="file" id="logo" name="logo" accept="image/jpeg,image/png,image/webp,image/svg+xml">
+            <label for="logo">Logótipo (JPG, PNG ou WEBP, máx. 2 MB) <?= $form['id'] > 0 ? '(opcional para manter o atual)' : '<span class="obrigatorio">*</span>' ?></label>
+            <input type="file" id="logo" name="logo" accept="image/jpeg,image/png,image/webp">
         </div>
         <div class="campo">
             <label for="ordem">Ordem (0 = primeiro)</label>

@@ -55,6 +55,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $foto = $st->fetchColumn() ?: null;
         $pdo->prepare('DELETE FROM testemunhos WHERE id = ?')->execute([$id]);
         apagar_foto_testemunho($foto);
+        registar_admin('apagar_testemunho', 'testemunhos', $id);
         flash_definir('sucesso', 'Testemunho apagado.');
         redirecionar('admin/testemunhos.php');
     }
@@ -62,6 +63,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($acao === 'alternar_visivel') {
         $id = (int)($_POST['id'] ?? 0);
         $pdo->prepare('UPDATE testemunhos SET visivel = 1 - visivel WHERE id = ?')->execute([$id]);
+        registar_admin('alternar_testemunho', 'testemunhos', $id);
         flash_definir('sucesso', 'Visibilidade atualizada.');
         redirecionar('admin/testemunhos.php');
     }
@@ -90,6 +92,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
 
         if ($erros === []) {
+            $novaFoto = null; // BUGFIX (orphan): inicializar antes do try
             try {
                 $novaFoto = processar_foto_testemunho($_FILES['foto'] ?? ['error' => UPLOAD_ERR_NO_FILE]);
                 $antiga   = null;
@@ -110,6 +113,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         $form['consentimento_confirmado'], $novaFoto, $form['id'],
                     ]);
                     if ($novaFoto !== null) { apagar_foto_testemunho($antiga); }
+                    registar_admin('editar_testemunho', 'testemunhos', $form['id']);
                     flash_definir('sucesso', 'Testemunho atualizado.');
                 } else {
                     $pdo->prepare(
@@ -119,12 +123,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         $form['nome'], $form['texto'], $form['local'] ?: null, $novaFoto,
                         $form['classificacao'], $form['ordem'], $form['visivel'], $form['consentimento_confirmado'],
                     ]);
+                    registar_admin('criar_testemunho', 'testemunhos', (int)$pdo->lastInsertId());
                     flash_definir('sucesso', 'Testemunho criado.');
                 }
                 redirecionar('admin/testemunhos.php');
             } catch (RuntimeException $e) {
+                apagar_foto_testemunho($novaFoto);
                 $erros[] = $e->getMessage();
             } catch (PDOException $e) {
+                // BUGFIX (orphan): apaga a foto recém-movida se o INSERT/UPDATE falhou
+                apagar_foto_testemunho($novaFoto);
                 error_log('Erro testemunho: ' . $e->getMessage());
                 $erros[] = 'Ocorreu um erro. Tenta novamente.';
             }
