@@ -34,16 +34,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $erros['dados'][] = 'Indica um telemóvel válido (só números).';
         }
         if ($erros['dados'] === []) {
-            $pdo->beginTransaction();
-            $pdo->prepare('UPDATE utilizadores SET nome_completo = ?, telemovel = ? WHERE id = ?')
-                ->execute([$formDados['nome'], $formDados['telemovel'], $u['id']]);
-            // a ficha de paciente da própria pessoa acompanha
-            $pdo->prepare('UPDATE pacientes SET nome_completo = ?, telemovel = ? WHERE utilizador_id = ?')
-                ->execute([$formDados['nome'], $formDados['telemovel'], $u['id']]);
-            $pdo->commit();
-            $_SESSION['utilizador']['nome'] = $formDados['nome'];
-            flash_definir('sucesso', 'Dados atualizados.');
-            redirecionar('perfil.php');
+            // BUGFIX menor: try/catch para rollback em caso de falha do 2º UPDATE
+            try {
+                $pdo->beginTransaction();
+                $pdo->prepare('UPDATE utilizadores SET nome_completo = ?, telemovel = ? WHERE id = ?')
+                    ->execute([$formDados['nome'], $formDados['telemovel'], $u['id']]);
+                $pdo->prepare('UPDATE pacientes SET nome_completo = ?, telemovel = ? WHERE utilizador_id = ?')
+                    ->execute([$formDados['nome'], $formDados['telemovel'], $u['id']]);
+                $pdo->commit();
+            } catch (Throwable $e) {
+                if ($pdo->inTransaction()) { $pdo->rollBack(); }
+                error_log('perfil dados: ' . $e->getMessage());
+                $erros['dados'][] = 'Ocorreu um erro ao guardar. Tenta novamente.';
+            }
+            if ($erros['dados'] === []) {
+                $_SESSION['utilizador']['nome'] = $formDados['nome'];
+                $_SESSION['utilizador']['nome_completo'] = $formDados['nome'];
+                flash_definir('sucesso', 'Dados atualizados.');
+                redirecionar('perfil.php');
+            }
         }
     }
 
@@ -53,21 +62,62 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $nova  = (string)($_POST['nova'] ?? '');
         $nova2 = (string)($_POST['nova2'] ?? '');
 
-        if (!password_verify($atual, $conta['password_hash'])) {
-            $erros['password'][] = 'A palavra-passe atual não está correta.';
+        // BUGFIX médio: rate limit contra brute-force da password atual.
+        // Reutiliza tentativas_login com prefixo #perfilpwd#.
+        $emailKey = '#perfilpwd#' . mb_substr((string)$conta['email'], 0, 180);
+        $ip       = ip_cliente();
+        $stR = $pdo->prepare(
+            'SELECT SUM(email = ?) AS por_email, SUM(ip = ?) AS por_ip
+               FROM tentativas_login
+              WHERE email = ? AND sucesso = 0
+                AND criado_em > (NOW() - INTERVAL 15 MINUTE)'
+        );
+        $stR->execute([$emailKey, $ip, $emailKey]);
+        $rR = $stR->fetch() ?: ['por_email' => 0, 'por_ip' => 0];
+        if ((int)$rR['por_email'] >= 5 || (int)$rR['por_ip'] >= 15) {
+            $erros['password'][] = 'Demasiadas tentativas. Tenta novamente dentro de 15 minutos.';
         }
-        if (strlen($nova) < 8 || strlen($nova) > 72 || !preg_match('/[A-Za-z]/', $nova) || !preg_match('/\d/', $nova)) {
-            $erros['password'][] = 'A nova palavra-passe deve ter entre 8 e 72 caracteres, com pelo menos uma letra e um número.';
-        }
-        if ($nova !== $nova2) {
-            $erros['password'][] = 'As novas palavras-passe não coincidem.';
-        }
+
         if ($erros['password'] === []) {
-            $pdo->prepare('UPDATE utilizadores SET password_hash = ? WHERE id = ?')
-                ->execute([password_hash($nova, PASSWORD_DEFAULT), $u['id']]);
-            session_regenerate_id(true);
-            flash_definir('sucesso', 'Palavra-passe alterada.');
-            redirecionar('perfil.php');
+            if (!password_verify($atual, $conta['password_hash'])) {
+                $erros['password'][] = 'A palavra-passe atual não está correta.';
+                $pdo->prepare('INSERT INTO tentativas_login (email, ip, sucesso) VALUES (?, ?, 0)')
+                    ->execute([$emailKey, $ip]);
+            }
+            if (strlen($nova) < 8 || strlen($nova) > 72 || !preg_match('/[A-Za-z]/', $nova) || !preg_match('/\d/', $nova)) {
+                $erros['password'][] = 'A nova palavra-passe deve ter entre 8 e 72 caracteres, com pelo menos uma letra e um número.';
+            }
+            if ($nova !== $nova2) {
+                $erros['password'][] = 'As novas palavras-passe não coincidem.';
+            }
+        }
+
+        if ($erros['password'] === []) {
+            try {
+                $pdo->beginTransaction();
+                $pdo->prepare('UPDATE utilizadores SET password_hash = ? WHERE id = ?')
+                    ->execute([password_hash($nova, PASSWORD_DEFAULT), $u['id']]);
+
+                // BUGFIX crítico: invalidar TODOS os tokens de recuperação pendentes.
+                // Sem isto, um atacante com link de recuperação ainda podia usá-lo depois
+                // de o utilizador mudar a password — reapossando-se da conta.
+                $pdo->prepare("UPDATE tokens_conta SET usado_em = NOW() WHERE utilizador_id = ? AND tipo = 'recuperar_password' AND usado_em IS NULL")
+                    ->execute([$u['id']]);
+
+                // Limpa falhas do rate limit desta operação
+                $pdo->prepare('DELETE FROM tentativas_login WHERE email = ? AND sucesso = 0')->execute([$emailKey]);
+                $pdo->commit();
+            } catch (Throwable $e) {
+                if ($pdo->inTransaction()) { $pdo->rollBack(); }
+                error_log('perfil password: ' . $e->getMessage());
+                $erros['password'][] = 'Ocorreu um erro ao alterar a palavra-passe. Tenta novamente.';
+            }
+            if ($erros['password'] === []) {
+                session_regenerate_id(true);
+                unset($_SESSION['csrf']);
+                flash_definir('sucesso', 'Palavra-passe alterada.');
+                redirecionar('perfil.php');
+            }
         }
     }
 
@@ -75,7 +125,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (in_array($acao, ['familiar_guardar', 'familiar_remover'], true)) {
         $pid = (int)($_POST['paciente'] ?? 0);
 
-        // só familiares geridos por este utilizador (nunca a própria ficha)
         $st = $pdo->prepare(
             "SELECT p.id FROM pacientes p JOIN autorizacoes_paciente a ON a.paciente_id = p.id
               WHERE p.id = ? AND a.utilizador_id = ? AND a.relacao <> 'proprio'"
@@ -100,7 +149,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             redirecionar('perfil.php');
         }
 
-        // guardar alterações
         $nome = trim((string)($_POST['nome'] ?? ''));
         $nasc = trim((string)($_POST['nascimento'] ?? ''));
         $tel  = preg_replace('/\s+/', '', trim((string)($_POST['telemovel'] ?? '')));
@@ -136,7 +184,6 @@ $st->execute([$u['id']]);
 $familiares = $st->fetchAll();
 $relacoes = ['filho' => 'Filho/a', 'pai_mae' => 'Pai/Mãe', 'conjuge' => 'Cônjuge', 'outro' => 'Outro'];
 
-// Benefícios/seguros associados aos pacientes desta conta (resumo visível no perfil)
 $stB = $pdo->prepare(
     "SELECT bp.id, bp.estado_validacao, bp.numero_apolice, bp.numero_beneficiario, bp.valido_de, bp.valido_ate,
             p.nome_completo AS paciente, pl.nome AS plano, s.nome AS seguradora
@@ -153,6 +200,16 @@ $rotulosBeneficio = [
     'registado' => 'À espera de validação', 'em_validacao' => 'Em validação',
     'validado' => 'Validado', 'rejeitado' => 'Rejeitado', 'expirado' => 'Expirado',
 ];
+
+// BUGFIX menor: helper que evita crash com '0000-00-00'
+$fmtData = static function (?string $d): string {
+    if ($d === null || $d === '' || str_starts_with($d, '0000-00-00')) { return '—'; }
+    try {
+        return (new DateTime($d))->format('d/m/Y');
+    } catch (Throwable $e) {
+        return '—';
+    }
+};
 
 $tituloPagina = 'Perfil e familiares';
 require __DIR__ . '/includes/cabecalho.php';
@@ -220,7 +277,7 @@ echo estilos_conta();
                     <span><?= e($b['seguradora']) ?> — <?= e($b['plano']) ?></span>
                     <span class="ajuda">Estado: <?= e($rotulosBeneficio[$b['estado_validacao']] ?? $b['estado_validacao']) ?></span>
                     <?php if ($b['valido_de'] || $b['valido_ate']): ?>
-                        <span class="ajuda">Validade: <?= e($b['valido_de'] ? (new DateTime($b['valido_de']))->format('d/m/Y') : '—') ?> a <?= e($b['valido_ate'] ? (new DateTime($b['valido_ate']))->format('d/m/Y') : '—') ?></span>
+                        <span class="ajuda">Validade: <?= e($fmtData($b['valido_de'])) ?> a <?= e($fmtData($b['valido_ate'])) ?></span>
                     <?php endif; ?>
                 </article>
             <?php endforeach; ?>

@@ -55,26 +55,36 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $pdo = db();
             $pdo->beginTransaction();
 
+            // BUGFIX: FOR UPDATE para consumir o token atomicamente.
+            // Sem isto, dois POSTs simultâneos podiam ambos passar a validação inicial.
+            $tokenHash = hash('sha256', $token);
+            $stLock = $pdo->prepare(
+                "SELECT id FROM tokens_conta
+                  WHERE token_hash = ? AND tipo = 'recuperar_password'
+                    AND usado_em IS NULL AND expira_em > NOW()
+                  FOR UPDATE"
+            );
+            $stLock->execute([$tokenHash]);
+            if (!$stLock->fetchColumn()) {
+                throw new RuntimeException('TOKEN_INVALIDO');
+            }
+
             // Atualiza a password
             $pdo->prepare('UPDATE utilizadores SET password_hash = ? WHERE id = ?')
                 ->execute([password_hash($password, PASSWORD_DEFAULT), $userId]);
 
             // Marca o token como usado
-            $tokenHash = hash('sha256', $token);
             $pdo->prepare('UPDATE tokens_conta SET usado_em = NOW() WHERE token_hash = ?')
                 ->execute([$tokenHash]);
-
-            // Invalida sessões antigas? (opcional — depende se guardas sessões na BD; neste projeto não)
-            // Como as sessões estão em ficheiro, não conseguimos invalidar todas. Mas o próximo login
-            // já usará a nova password.
 
             // Regista no log
             registar_admin('repor_password', 'utilizadores', $userId);
 
-            // Notifica o utilizador por notificação interna (não por email)
+            // Notifica o utilizador por notificação interna
+            // BUGFIX: tipo dedicado (antes era 'alteracao_data', que é semanticamente errado)
             $pdo->prepare(
                 "INSERT INTO notificacoes (utilizador_id, tipo, canal, assunto, mensagem, estado, enviada_em)
-                 VALUES (?, 'alteracao_data', 'interna', 'Palavra-passe alterada', ?, 'enviada', NOW())"
+                 VALUES (?, 'password_alterada', 'interna', 'Palavra-passe alterada', ?, 'enviada', NOW())"
             )->execute([
                 $userId,
                 'A tua palavra-passe foi alterada com sucesso. Se não foste tu, contacta a clínica imediatamente.',
@@ -84,10 +94,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             flash_definir('sucesso', 'Palavra-passe alterada com sucesso. Já podes iniciar sessão.');
             redirecionar('login.php');
-        } catch (PDOException $e) {
+        } catch (Throwable $e) {
             if ($pdo->inTransaction()) { $pdo->rollBack(); }
-            error_log('Erro repor-password: ' . $e->getMessage());
-            $erros[] = 'Ocorreu um erro. Tenta novamente.';
+            if ($e->getMessage() === 'TOKEN_INVALIDO') {
+                $erros[] = 'Este link já foi usado ou expirou. Pede um novo link de recuperação.';
+            } else {
+                error_log('Erro repor-password: ' . $e->getMessage());
+                $erros[] = 'Ocorreu um erro. Tenta novamente.';
+            }
         }
     }
 }

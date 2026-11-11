@@ -17,6 +17,32 @@ if (!empty($_SESSION['confirmar_email_codigo_dev']) && $email !== '' && $email =
     unset($_SESSION['confirmar_email_codigo_dev']);
 }
 
+// BUGFIX: rate limit por email e por IP, reutilizando tentativas_login com prefixo.
+// Sem isto, 6 dígitos são brute-forceáveis em segundos.
+function _ce_rate_key(string $prefixo, string $valor): string
+{
+    return $prefixo . mb_substr($valor, 0, 180);
+}
+function _ce_contar(PDO $pdo, string $emailKey, string $ip, string $prefixo, int $janelaMin): array
+{
+    $st = $pdo->prepare(
+        'SELECT
+            SUM(email = ?) AS por_email,
+            SUM(ip = ?)    AS por_ip
+         FROM tentativas_login
+         WHERE email LIKE ? AND sucesso = 0
+           AND criado_em > (NOW() - INTERVAL ' . $janelaMin . ' MINUTE)'
+    );
+    $st->execute([$emailKey, $ip, $prefixo . '%']);
+    $r = $st->fetch() ?: ['por_email' => 0, 'por_ip' => 0];
+    return [(int)$r['por_email'], (int)$r['por_ip']];
+}
+function _ce_registar(PDO $pdo, string $emailKey, string $ip): void
+{
+    $pdo->prepare('INSERT INTO tentativas_login (email, ip, sucesso) VALUES (?, ?, 0)')
+        ->execute([$emailKey, $ip]);
+}
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     csrf_validar();
     $acao = (string)($_POST['acao'] ?? 'confirmar');
@@ -27,72 +53,94 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     $pdo = db();
+    $ip  = ip_cliente();
 
     if ($erros === [] && $acao === 'reenviar') {
-        $st = $pdo->prepare('SELECT id, email_verificado_em, ativo FROM utilizadores WHERE email = ?');
-        $st->execute([$email]);
-        $u = $st->fetch();
-        if (!$u) {
-            $sucesso = 'Se o email estiver registado, foi enviado um novo código de confirmação.';
-        } elseif ((int)$u['ativo'] !== 1) {
-            $erros[] = 'Esta conta não está ativa.';
-        } elseif ($u['email_verificado_em'] !== null) {
-            $sucesso = 'Este email já se encontra confirmado. Podes iniciar sessão.';
+        // BUGFIX: 3 reenvios / 15 min por email, 10 / 15 min por IP.
+        $emailKey = _ce_rate_key('#reenv#', $email);
+        [$porEmail, $porIp] = _ce_contar($pdo, $emailKey, $ip, '#reenv#', 15);
+        if ($porEmail >= 3 || $porIp >= 10) {
+            $erros[] = 'Demasiados pedidos de reenvio. Tenta novamente dentro de alguns minutos.';
         } else {
-            $codigo = str_pad((string)random_int(0, 999999), 6, '0', STR_PAD_LEFT);
-            $hash = hash('sha256', $codigo);
-            $pdo->prepare("UPDATE tokens_conta SET usado_em = NOW() WHERE utilizador_id = ? AND tipo = 'verificar_email' AND usado_em IS NULL")
-                ->execute([(int)$u['id']]);
-            $pdo->prepare("INSERT INTO tokens_conta (utilizador_id, tipo, token_hash, expira_em) VALUES (?, 'verificar_email', ?, DATE_ADD(NOW(), INTERVAL 30 MINUTE))")
-                ->execute([(int)$u['id'], $hash]);
-            $_SESSION['confirmar_email_pendente'] = $email;
-            if (defined('MODO_DEV') && MODO_DEV) {
-                $codigoMostrado = $codigo;
-                $sucesso = 'Novo código gerado (modo demonstração, sem envio real de email).';
+            _ce_registar($pdo, $emailKey, $ip);
+
+            $st = $pdo->prepare('SELECT id, email_verificado_em, ativo FROM utilizadores WHERE email = ?');
+            $st->execute([$email]);
+            $u = $st->fetch();
+            if (!$u) {
+                // BUGFIX: resposta genérica (não revela existência)
+                $sucesso = 'Se o email estiver registado e por confirmar, foi gerado um novo código de confirmação.';
+            } elseif ((int)$u['ativo'] !== 1) {
+                $sucesso = 'Se o email estiver registado e por confirmar, foi gerado um novo código de confirmação.';
+            } elseif ($u['email_verificado_em'] !== null) {
+                // BUGFIX: antes revelava que o email existe. Agora é genérico.
+                $sucesso = 'Se o email estiver registado e por confirmar, foi gerado um novo código de confirmação.';
             } else {
-                $sucesso = 'Pedido de confirmação registado. O envio automático de email não está configurado neste ambiente; solicita à administração o código de confirmação ou configura o envio de emails.';
+                $codigo = str_pad((string)random_int(0, 999999), 6, '0', STR_PAD_LEFT);
+                $hash = hash('sha256', $codigo);
+                $pdo->prepare("UPDATE tokens_conta SET usado_em = NOW() WHERE utilizador_id = ? AND tipo = 'verificar_email' AND usado_em IS NULL")
+                    ->execute([(int)$u['id']]);
+                $pdo->prepare("INSERT INTO tokens_conta (utilizador_id, tipo, token_hash, expira_em) VALUES (?, 'verificar_email', ?, DATE_ADD(NOW(), INTERVAL 30 MINUTE))")
+                    ->execute([(int)$u['id'], $hash]);
+                $_SESSION['confirmar_email_pendente'] = $email;
+                if (defined('MODO_DEV') && MODO_DEV) {
+                    $codigoMostrado = $codigo;
+                    $sucesso = 'Novo código gerado (modo demonstração, sem envio real de email).';
+                } else {
+                    $sucesso = 'Pedido de confirmação registado. O envio automático de email não está configurado neste ambiente; solicita à administração o código de confirmação ou configura o envio de emails.';
+                }
             }
         }
     }
 
     if ($erros === [] && $acao === 'confirmar') {
-        $codigo = preg_replace('/\s+/', '', (string)($_POST['codigo'] ?? ''));
-        if (!preg_match('/^\d{6}$/', $codigo)) {
-            $erros[] = 'Indica o código de 6 dígitos recebido por email.';
+        // BUGFIX: 10 tentativas / 15 min por email, 30 / 15 min por IP.
+        $emailKey = _ce_rate_key('#conf#', $email);
+        [$porEmail, $porIp] = _ce_contar($pdo, $emailKey, $ip, '#conf#', 15);
+        if ($porEmail >= 10 || $porIp >= 30) {
+            $erros[] = 'Demasiadas tentativas. Pede um novo código de confirmação ou tenta dentro de alguns minutos.';
         } else {
-            $hash = hash('sha256', $codigo);
-            $st = $pdo->prepare(
-                "SELECT t.utilizador_id, t.expira_em, t.usado_em, u.email, u.email_verificado_em
-                   FROM tokens_conta t
-                   JOIN utilizadores u ON u.id = t.utilizador_id
-                  WHERE t.token_hash = ? AND t.tipo = 'verificar_email' AND u.email = ?
-                  LIMIT 1"
-            );
-            $st->execute([$hash, $email]);
-            $tok = $st->fetch();
-            if (!$tok) {
-                $erros[] = 'Código incorreto ou inválido. Verifica o código introduzido.';
-            } elseif ($tok['usado_em'] !== null) {
-                $erros[] = 'Este código já foi utilizado. Pede um novo código.';
-            } elseif ($tok['email_verificado_em'] !== null) {
-                $pdo->prepare('UPDATE tokens_conta SET usado_em = NOW() WHERE token_hash = ?')->execute([$hash]);
-                $sucesso = 'Este email já se encontra confirmado. Podes iniciar sessão.';
-            } elseif (strtotime((string)$tok['expira_em']) < time()) {
-                $erros[] = 'O código expirou. Pede um novo código de confirmação.';
+            $codigo = preg_replace('/\s+/', '', (string)($_POST['codigo'] ?? ''));
+            if (!preg_match('/^\d{6}$/', $codigo)) {
+                $erros[] = 'Indica o código de 6 dígitos recebido por email.';
             } else {
-                $pdo->beginTransaction();
-                try {
-                    $pdo->prepare('UPDATE utilizadores SET email_verificado_em = NOW() WHERE id = ?')->execute([(int)$tok['utilizador_id']]);
-                    $pdo->prepare("UPDATE tokens_conta SET usado_em = NOW() WHERE utilizador_id = ? AND tipo = 'verificar_email' AND usado_em IS NULL")
-                        ->execute([(int)$tok['utilizador_id']]);
-                    $pdo->commit();
-                    unset($_SESSION['confirmar_email_pendente']);
-                    flash_definir('sucesso', 'Email confirmado com sucesso! Já podes iniciar sessão.');
-                    redirecionar('login.php');
-                } catch (Throwable $e) {
-                    if ($pdo->inTransaction()) { $pdo->rollBack(); }
-                    error_log('Erro confirmação email: ' . $e->getMessage());
-                    $erros[] = 'Ocorreu um erro ao confirmar o email. Tenta novamente.';
+                _ce_registar($pdo, $emailKey, $ip);
+
+                $hash = hash('sha256', $codigo);
+                $st = $pdo->prepare(
+                    "SELECT t.utilizador_id, t.expira_em, t.usado_em, u.email, u.email_verificado_em
+                       FROM tokens_conta t
+                       JOIN utilizadores u ON u.id = t.utilizador_id
+                      WHERE t.token_hash = ? AND t.tipo = 'verificar_email' AND u.email = ?
+                      LIMIT 1"
+                );
+                $st->execute([$hash, $email]);
+                $tok = $st->fetch();
+                if (!$tok) {
+                    $erros[] = 'Código incorreto ou inválido. Verifica o código introduzido.';
+                } elseif ($tok['usado_em'] !== null) {
+                    $erros[] = 'Este código já foi utilizado. Pede um novo código.';
+                } elseif ($tok['email_verificado_em'] !== null) {
+                    $pdo->prepare('UPDATE tokens_conta SET usado_em = NOW() WHERE token_hash = ?')->execute([$hash]);
+                    $sucesso = 'Este email já se encontra confirmado. Podes iniciar sessão.';
+                } elseif (utc((string)$tok['expira_em']) < agora_bd($pdo)) {
+                    // BUGFIX: usar agora_bd() (fuso da BD) em vez de time() (fuso PHP)
+                    $erros[] = 'O código expirou. Pede um novo código de confirmação.';
+                } else {
+                    $pdo->beginTransaction();
+                    try {
+                        $pdo->prepare('UPDATE utilizadores SET email_verificado_em = NOW() WHERE id = ?')->execute([(int)$tok['utilizador_id']]);
+                        $pdo->prepare("UPDATE tokens_conta SET usado_em = NOW() WHERE utilizador_id = ? AND tipo = 'verificar_email' AND usado_em IS NULL")
+                            ->execute([(int)$tok['utilizador_id']]);
+                        $pdo->commit();
+                        unset($_SESSION['confirmar_email_pendente']);
+                        flash_definir('sucesso', 'Email confirmado com sucesso! Já podes iniciar sessão.');
+                        redirecionar('login.php');
+                    } catch (Throwable $e) {
+                        if ($pdo->inTransaction()) { $pdo->rollBack(); }
+                        error_log('Erro confirmação email: ' . $e->getMessage());
+                        $erros[] = 'Ocorreu um erro ao confirmar o email. Tenta novamente.';
+                    }
                 }
             }
         }

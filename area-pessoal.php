@@ -42,7 +42,13 @@ $st = $pdo->prepare(
       WHERE m.utilizador_id = :uid"
 );
 $st->execute([':agora' => $agora->format('Y-m-d H:i:s'), ':uid' => $u['id']]);
-$conta = $st->fetch() ?: ['ativas' => 0, 'concluidas' => 0, 'canceladas' => 0];
+// FIX: SUM() sem GROUP BY devolve NULL quando não há linhas; normalizar para int.
+$rConta = $st->fetch() ?: [];
+$conta = [
+    'ativas'     => (int)($rConta['ativas']     ?? 0),
+    'concluidas' => (int)($rConta['concluidas'] ?? 0),
+    'canceladas' => (int)($rConta['canceladas'] ?? 0),
+];
 
 // Benefícios registados por este utilizador
 $st = $pdo->prepare(
@@ -72,15 +78,15 @@ echo estilos_conta();
 
 <div class="grelha seccao">
     <div class="cartao texto-centro">
-        <p class="numero"><?= (int)($conta['ativas'] ?? 0) ?></p>
+        <p class="numero"><?= $conta['ativas'] ?></p>
         <p class="ajuda">Consultas por realizar</p>
     </div>
     <div class="cartao texto-centro">
-        <p class="numero"><?= (int)($conta['concluidas'] ?? 0) ?></p>
+        <p class="numero"><?= $conta['concluidas'] ?></p>
         <p class="ajuda">Concluídas</p>
     </div>
     <div class="cartao texto-centro">
-        <p class="numero"><?= (int)($conta['canceladas'] ?? 0) ?></p>
+        <p class="numero"><?= $conta['canceladas'] ?></p>
         <p class="ajuda">Canceladas</p>
     </div>
     <div class="cartao texto-centro">
