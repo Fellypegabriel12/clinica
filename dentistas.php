@@ -5,8 +5,6 @@ require_once __DIR__ . '/includes/conteudo.php';
 
 $pdo = db();
 
-$ESPECIALIDADES_OMD = ['Ortodontia', 'Odontopediatria', 'Cirurgia oral', 'Periodontologia'];
-
 // ---------- 1. Página de perfil individual (?ver=ID) ----------
 $verId = filter_input(INPUT_GET, 'ver', FILTER_VALIDATE_INT) ?: 0;
 
@@ -81,6 +79,11 @@ $filtroEsp  = filter_input(INPUT_GET, 'especialidade', FILTER_VALIDATE_INT) ?: 0
 $filtroTrat = filter_input(INPUT_GET, 'tratamento',    FILTER_VALIDATE_INT) ?: 0;
 $modoMarcar = ($_GET['modo'] ?? '') === 'marcar';
 
+// BUGFIX: a lista hardcoded ESPECIALIDADES_OMD filtrava o dropdown, mas os
+// cartões e o perfil mostram TODAS as especialidades via GROUP_CONCAT.
+// Resultado: uma especialidade nova (ex.: Implantologia) aparecia no cartão
+// do dentista mas não era filtrável. Agora o dropdown reflete todas as
+// especialidades ativas na BD (consistente com o que é mostrado).
 $especialidades = $pdo->query('SELECT id, nome FROM especialidades WHERE ativo = 1 ORDER BY nome')->fetchAll();
 $tratamentos    = $pdo->query('SELECT id, nome FROM tratamentos    WHERE ativo = 1 ORDER BY nome')->fetchAll();
 
@@ -144,7 +147,6 @@ require __DIR__ . '/includes/cabecalho.php';
         <select id="especialidade" name="especialidade">
             <option value="0">Todas</option>
             <?php foreach ($especialidades as $e): ?>
-                <?php if (!in_array($e['nome'], $ESPECIALIDADES_OMD, true)) { continue; } ?>
                 <option value="<?= (int)$e['id'] ?>" <?= $filtroEsp === (int)$e['id'] ? 'selected' : '' ?>>
                     <?= e($e['nome']) ?>
                 </option>

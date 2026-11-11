@@ -48,6 +48,15 @@ $dentistas = $stD->fetchAll();
 $galeria = $pdo->query('SELECT caminho, legenda FROM galeria WHERE visivel = 1 ORDER BY ordem, id LIMIT 8')->fetchAll();
 $faq = $pdo->query('SELECT pergunta, resposta FROM perguntas_frequentes WHERE visivel = 1 ORDER BY ordem, id')->fetchAll();
 
+// BUGFIX: default do mapa usava Portimão, mas CLINICA_MORADA é Faro.
+// Passa a usar a mesma fonte de verdade da morada mostrada em baixo.
+$mapaEmbed = config_valor_texto(
+    $pdo,
+    'mapa_embed_url',
+    'https://www.google.com/maps?q=' . rawurlencode(CLINICA_MORADA) . '&output=embed'
+);
+$clinicaNomeMapa = clinica_dado($pdo, 'clinica_nome', CLINICA_NOME);
+
 $tituloPagina = 'Início';
 require __DIR__ . '/includes/cabecalho.php';
 ?>
@@ -184,14 +193,11 @@ require __DIR__ . '/includes/cabecalho.php';
     <div class="cartao" data-animar="up">
         <h2>Onde estamos</h2>
         <div class="mapa-embed">
-            <?php
-            $mapaEmbed = config_valor_texto($pdo, 'mapa_embed_url', 'https://www.google.com/maps?q=Portim%C3%A3o%2C%20Portugal&output=embed');
-            ?>
             <iframe
                 src="<?= e($mapaEmbed) ?>"
                 loading="lazy"
                 referrerpolicy="no-referrer-when-downgrade"
-                title="Localização da clínica (Portimão)"></iframe>
+                title="Localização da <?= e($clinicaNomeMapa) ?>"></iframe>
         </div>
     </div>
 </section>
