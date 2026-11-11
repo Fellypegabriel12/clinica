@@ -87,13 +87,11 @@ require __DIR__ . '/includes/cabecalho.php';
     <h2>Propriedade intelectual</h2>
     <p>
         Todos os conteúdos deste site (textos, imagens, logótipos) são
-        propriedade de <?= e(CLINICA_NOME) ?> ou dos respetivos autores, sendo
+        propriedade de <?= e(clinica_dado($pdo, 'clinica_nome', CLINICA_NOME)) ?> ou dos respetivos autores, sendo
         proibida a sua reprodução sem autorização prévia.
     </p>
 </section>
 
 <p><a class="botao" href="index.php">← Voltar ao início</a></p>
-
-<dt>Licença de funcionamento ERS</dt><dd><?= e(config_valor_texto(db(), 'licenca_funcionamento_ers', '—')) ?></dd>
 
 <?php require __DIR__ . '/includes/rodape.php'; ?>
