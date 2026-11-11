@@ -6,9 +6,6 @@ require __DIR__ . '/../includes/gestao.php';
 $u   = exigir_login(['admin']);
 $pdo = db();
 
-// Definição dos campos (chave => [rótulo, tipo, ajuda])
-// Tipos: int | bool | text | longtext | password
-// password: campo sensível (mascarado na UI; vazio = manter valor atual).
 $campos = [
     'bloco_agenda_min'              => ['Bloco da agenda (min)',           'int',   'De 15 a 60.'],
     'reserva_temporaria_min'        => ['Reserva temporária (min)',        'int',   'Quanto tempo um horário fica reservado.'],
@@ -27,7 +24,6 @@ $campos = [
     'max_tentativas_login'          => ['Máx. tentativas de login',        'int',   'Antes de bloquear.'],
     'moeda'                         => ['Moeda',                           'text',  'Ex.: EUR.'],
 
-    // Identidade visual e da clínica
     'clinica_nome'                  => ['Nome da clínica',                'text',  'Denominação legal/comercial (usada no site, SEO e rodapé).'],
     'clinica_logotipo_url'          => ['Logótipo (caminho/URL)',         'text',  'Ex.: uploads/identidade/logo.png ou URL. Vazio = usa o ícone padrão.'],
     'clinica_favicon_url'           => ['Favicon/ícone (caminho/URL)',    'text',  'Ex.: uploads/identidade/favicon.png. Vazio = sem favicon personalizado.'],
@@ -38,20 +34,17 @@ $campos = [
     'clinica_diretor_omd'           => ['Cédula OMD do diretor',          'text',  'Ex.: Cédula OMD n.º 12345.'],
     'licenca_funcionamento_ers'     => ['Licença de funcionamento (ERS)', 'text',  'N.º de licença da clínica.'],
 
-    // Contactos públicos e mapa
     'mapa_embed_url'                => ['URL do mapa (embed)',            'text',  'Ex.: https://www.google.com/maps/embed?...'],
     'mapa_link'                     => ['Link do Google Maps',            'text',  'Link para abrir a localização.'],
     'contacto_email'                => ['Email de contacto público',      'text',  'Email mostrado no site/contactos.'],
     'contacto_telefone'             => ['Telefone público',                'text',  'Aparece na página de contactos.'],
     'whatsapp_numero'               => ['Número de WhatsApp',             'text',  'Ex.: 351912345678 (sem espaços).'],
 
-    // Emails operacionais (receção/notificações)
     'email_recepcao_contactos'      => ['Email receção: mensagens de contacto', 'text', 'Destino interno para mensagens do formulário (registo em BD continua ativo).'],
     'email_recepcao_consultas'      => ['Email receção: consultas/marcações',   'text', 'Endereço para receber pedidos/confirmações de consulta (quando envio de email estiver ativo).'],
     'email_notificacoes_remetente'  => ['Email remetente (notificações)',       'text', 'Endereço usado como remetente em emails automáticos (requer transporte configurado).'],
     'email_notificacoes_nome'       => ['Nome do remetente (notificações)',     'text', 'Ex.: nome da clínica.'],
 
-    // Configuração de envio de email (SMTP) — armazenada; envio automático requer integração de transporte
     'smtp_ativo'                    => ['SMTP ativo',                     'bool',  'Ativar quando o transporte SMTP estiver integrado e testado.'],
     'smtp_host'                     => ['SMTP host',                      'text',  'Servidor SMTP (ex.: smtp.seudominio.pt).'],
     'smtp_porta'                    => ['SMTP porta',                     'int',   'Normalmente 587 (TLS) ou 465 (SSL).'],
@@ -59,7 +52,6 @@ $campos = [
     'smtp_utilizador'               => ['SMTP utilizador',                'text',  'Conta de autenticação SMTP.'],
     'smtp_password'                 => ['SMTP palavra-passe',             'password', 'Deixar em branco para manter. Guardar com cuidado; não expor.'],
 
-    // Redes sociais (URLs/contactos; mostrar só as configuradas e ativas)
     'rede_instagram_ativa'          => ['Mostrar Instagram',               'bool',  'Desative para ocultar sem apagar o link.'],
     'instagram_url'                 => ['Instagram (URL)',                'text',  'Link completo.'],
     'rede_facebook_ativa'           => ['Mostrar Facebook',                'bool',  ''],
@@ -75,12 +67,10 @@ $campos = [
     'rede_linkedin_ativa'           => ['Mostrar LinkedIn',                'bool',  ''],
     'linkedin_url'                  => ['LinkedIn (URL)',                 'text',  'Link completo.'],
 
-    // Números da clínica (homepage)
     'anos_existencia'               => ['Anos de existência',             'int',   'Mostrado na homepage. 0 = esconder.'],
     'pacientes_satisfeitos'         => ['Pacientes satisfeitos',          'int',   'Mostrado na homepage. 0 = esconder.'],
     'consultas_realizadas'          => ['Consultas realizadas',           'int',   'Mostrado na homepage. 0 = esconder.'],
 
-    // Página "A Nossa Clínica"
     'clinica_filosofia'             => ['Filosofia',                       'longtext', 'Aparece em sobre.php. Uma linha por parágrafo.'],
     'clinica_tecnologia'            => ['Tecnologia',                      'longtext', 'Aparece em sobre.php. Uma linha por parágrafo.'],
     'clinica_instalacoes'           => ['Instalações',                     'longtext', 'Aparece em sobre.php. Uma linha por parágrafo.'],
@@ -89,22 +79,28 @@ $campos = [
 
 $erros = [];
 
-function cfg_guardar_identidade_upload(PDO $pdo, string $fileKey, string $configKey, array $mimes, int $maxBytes, array &$erros): void
+/**
+ * Processa um upload de identidade.
+ * BUGFIX: devolve agora a path gravada (ou null se não houve upload), para o
+ * chamador poder injetá-la em $valores e evitar que o loop seguinte a sobrescreva.
+ * BUGFIX: limpa o ficheiro antigo (se estava em uploads/identidade/) depois de gravar o novo.
+ */
+function cfg_guardar_identidade_upload(PDO $pdo, string $fileKey, string $configKey, array $mimes, int $maxBytes, array &$erros): ?string
 {
     $f = $_FILES[$fileKey] ?? null;
     if (!$f || ($f['error'] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_NO_FILE) {
-        return;
+        return null;
     }
     if (($f['error'] ?? UPLOAD_ERR_OK) !== UPLOAD_ERR_OK) {
         $erros[] = 'Não foi possível enviar o ficheiro (' . $configKey . ').';
-        return;
+        return null;
     }
     if (($f['size'] ?? 0) > $maxBytes) {
         $erros[] = 'O ficheiro ' . $configKey . ' excede o tamanho máximo permitido.';
-        return;
+        return null;
     }
     $info = @getimagesize($f['tmp_name']);
-    $mime = $info['mime'] ?? (string)($f['type'] ?? '');
+    $mime = (is_array($info) && isset($info['mime'])) ? $info['mime'] : (string)($f['type'] ?? '');
     $ext = $mimes[$mime] ?? null;
     if ($ext === null && $configKey === 'clinica_favicon_url') {
         $nomeOrig = (string)($f['name'] ?? '');
@@ -114,33 +110,53 @@ function cfg_guardar_identidade_upload(PDO $pdo, string $fileKey, string $config
     }
     if ($ext === null) {
         $erros[] = 'Formato inválido para ' . $configKey . '. Use PNG, JPG ou WEBP (favicon também pode ser ICO).';
-        return;
+        return null;
     }
     $dir = __DIR__ . '/../uploads/identidade';
     if (!is_dir($dir)) { @mkdir($dir, 0755, true); }
     $nome = $configKey . '_' . bin2hex(random_bytes(8)) . '.' . $ext;
     if (!@move_uploaded_file($f['tmp_name'], $dir . '/' . $nome)) {
         $erros[] = 'Não foi possível guardar o ficheiro (' . $configKey . ').';
-        return;
+        return null;
     }
     @chmod($dir . '/' . $nome, 0644);
+
+    // Ler path antiga para poder apagar o ficheiro órfão
+    $st = $pdo->prepare('SELECT valor FROM configuracoes WHERE chave = ?');
+    $st->execute([$configKey]);
+    $antiga = (string)($st->fetchColumn() ?: '');
+
     $valor = 'uploads/identidade/' . $nome;
     $up = $pdo->prepare('UPDATE configuracoes SET valor = ? WHERE chave = ?');
     $ins = $pdo->prepare('INSERT INTO configuracoes (chave, valor) VALUES (?, ?)');
-    $st = $pdo->prepare('SELECT 1 FROM configuracoes WHERE chave = ?');
-    $st->execute([$configKey]);
-    if ($st->fetchColumn()) { $up->execute([$valor, $configKey]); }
+    $stChk = $pdo->prepare('SELECT 1 FROM configuracoes WHERE chave = ?');
+    $stChk->execute([$configKey]);
+    if ($stChk->fetchColumn()) { $up->execute([$valor, $configKey]); }
     else { $ins->execute([$configKey, $valor]); }
+
+    // Apagar ficheiro antigo se era um upload gerido por nós (não apaga URLs externas)
+    if ($antiga !== '' && str_starts_with($antiga, 'uploads/identidade/')) {
+        $ficheiroAntigo = __DIR__ . '/../' . $antiga;
+        if (is_file($ficheiroAntigo) && $ficheiroAntigo !== $dir . '/' . $nome) {
+            @unlink($ficheiroAntigo);
+        }
+    }
+
+    return $valor;
 }
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     csrf_validar();
     $valores = $_POST['cfg'] ?? [];
 
-    // Uploads opcionais de identidade (logótipo/favicon). SVG desativado por segurança.
+    // Uploads opcionais de identidade (SVG desativado por segurança).
+    // BUGFIX crítico: as paths devolvidas são injetadas em $valores para o loop
+    // seguinte não as sobrescrever com o valor (antigo/vazio) do campo de texto.
     try {
-        cfg_guardar_identidade_upload($pdo, 'clinica_logo_upload', 'clinica_logotipo_url', ['image/png'=>'png','image/jpeg'=>'jpg','image/webp'=>'webp'], 2 * 1024 * 1024, $erros);
-        cfg_guardar_identidade_upload($pdo, 'clinica_favicon_upload', 'clinica_favicon_url', ['image/png'=>'png','image/jpeg'=>'jpg','image/webp'=>'webp'], 512 * 1024, $erros);
+        $novoLogo = cfg_guardar_identidade_upload($pdo, 'clinica_logo_upload', 'clinica_logotipo_url', ['image/png'=>'png','image/jpeg'=>'jpg','image/webp'=>'webp'], 2 * 1024 * 1024, $erros);
+        if ($novoLogo !== null) { $valores['clinica_logotipo_url'] = $novoLogo; }
+        $novoFavicon = cfg_guardar_identidade_upload($pdo, 'clinica_favicon_upload', 'clinica_favicon_url', ['image/png'=>'png','image/jpeg'=>'jpg','image/webp'=>'webp'], 512 * 1024, $erros);
+        if ($novoFavicon !== null) { $valores['clinica_favicon_url'] = $novoFavicon; }
     } catch (Throwable $e) {
         error_log('Upload identidade: ' . $e->getMessage());
         $erros[] = 'Ocorreu um erro ao processar os ficheiros de identidade.';
@@ -199,7 +215,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-// Carregar valores atuais
 $st = $pdo->query('SELECT chave, valor FROM configuracoes');
 $atuais = [];
 foreach ($st as $r) { $atuais[$r['chave']] = $r['valor']; }

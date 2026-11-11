@@ -34,11 +34,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if (!in_array($novo, ['pendente', 'enviada', 'recebida', 'cancelada'], true)) {
                 throw new RuntimeException('Estado inválido.');
             }
+            // BUGFIX (defensivo): bloquear transições a partir de "recebida" para evitar
+            // que um POST manual (via devtools) reverta para pendente e permita receber 2×.
+            if ($novo !== 'recebida') {
+                $stCur = $pdo->prepare('SELECT estado FROM stock_encomendas WHERE id = ?');
+                $stCur->execute([$id]);
+                $estadoAtual = $stCur->fetchColumn();
+                if ($estadoAtual === false) {
+                    throw new RuntimeException('Encomenda não encontrada.');
+                }
+                if ($estadoAtual === 'recebida') {
+                    throw new RuntimeException('Encomenda já recebida; o estado não pode ser alterado.');
+                }
+            }
             if ($novo === 'recebida') {
                 stock_receber_encomenda($pdo, $id, $u['id']);
+                registar_admin('stock_receber_encomenda', 'stock_encomendas', $id);
                 flash_definir('sucesso', 'Encomenda recebida e stock atualizado.');
             } else {
                 $pdo->prepare('UPDATE stock_encomendas SET estado = ? WHERE id = ?')->execute([$novo, $id]);
+                registar_admin('stock_encomenda_estado', 'stock_encomendas', $id, $novo);
                 flash_definir('sucesso', 'Estado da encomenda atualizado.');
             }
             redirecionar('admin/stock-encomendas.php');
@@ -54,7 +69,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 $verId = (int)($_GET['ver'] ?? 0);
 
 if ($verId > 0) {
-    // Detalhe de uma encomenda
     $st = $pdo->prepare('SELECT e.*, ut.nome_completo AS autor FROM stock_encomendas e LEFT JOIN utilizadores ut ON ut.id = e.criado_por WHERE e.id = ?');
     $st->execute([$verId]);
     $enc = $st->fetch();
@@ -128,7 +142,6 @@ if ($verId > 0) {
     exit;
 }
 
-// ---------- Lista + criação ----------
 $encomendas = $pdo->query(
     'SELECT e.*, ut.nome_completo AS autor,
             (SELECT COUNT(*) FROM stock_encomenda_linhas l WHERE l.encomenda_id = e.id) AS n_linhas
