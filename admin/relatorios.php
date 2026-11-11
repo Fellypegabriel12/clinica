@@ -10,7 +10,6 @@ $pdo = db();
 limpar_reservas_expiradas($pdo);
 $agora = agora_bd($pdo);
 
-// Filtro de período (padrão: últimos 30 dias)
 $de  = (string)($_GET['de']  ?? $agora->modify('-30 days')->format('Y-m-d'));
 $ate = (string)($_GET['ate'] ?? $agora->format('Y-m-d'));
 if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $de))  { $de  = $agora->modify('-30 days')->format('Y-m-d'); }
@@ -33,7 +32,19 @@ $st = $pdo->prepare("SELECT COUNT(*) FROM consultas WHERE inicio >= ? AND inicio
 $st->execute([$ini, $fim]);
 $totalCanceladas = (int)$st->fetchColumn();
 
-$st = $pdo->prepare("SELECT COALESCE(SUM(valor), 0) FROM pagamentos WHERE estado = 'pago' AND pago_em >= ? AND pago_em < ?");
+// BUGFIX (bug 1): receita líquida coerente com financeiro.php e pagamentos.php.
+// Antes só contava estado = 'pago' → pagamentos parcialmente reembolsados ficavam
+// excluídos do SUM (receita subestimada). Passa a usar CASE + GREATEST + COALESCE de datas.
+$st = $pdo->prepare(
+    "SELECT COALESCE(SUM(
+        CASE WHEN estado IN ('pago','reembolsado','parcialmente_reembolsado')
+             THEN GREATEST(0, valor - valor_reembolsado)
+             ELSE 0 END
+    ), 0)
+       FROM pagamentos
+      WHERE COALESCE(data_pagamento, pago_em, criado_em) >= ?
+        AND COALESCE(data_pagamento, pago_em, criado_em) <  ?"
+);
 $st->execute([$ini, $fim]);
 $receita = (float)$st->fetchColumn();
 
@@ -63,12 +74,15 @@ $st->execute([$ini, $fim]);
 $porDentista = $st->fetchAll();
 
 // ---------- Tratamentos mais procurados ----------
+// BUGFIX (bug 2): excluir consultas canceladas da receita_prevista
+// (coerente com financeiro.php que já filtrava; antes inflava).
 $st = $pdo->prepare(
     'SELECT t.id, t.nome, COUNT(ct.id) AS total, SUM(ct.preco_final) AS receita_prevista
        FROM consultas_tratamentos ct
        JOIN consultas c ON c.id = ct.consulta_id
        JOIN tratamentos t ON t.id = ct.tratamento_id
       WHERE c.inicio >= ? AND c.inicio < ?
+        AND c.estado <> \'cancelada\'
       GROUP BY t.id, t.nome
       ORDER BY total DESC
       LIMIT 10'
@@ -138,7 +152,7 @@ echo estilos_gestao();
     </div>
     <div class="cartao texto-centro">
         <p class="numero"><?= e(formatar_preco($receita)) ?></p>
-        <p class="ajuda">Receita paga</p>
+        <p class="ajuda">Receita líquida</p>
     </div>
     <div class="cartao texto-centro">
         <p class="numero"><?= e(formatar_preco($pendente)) ?></p>
