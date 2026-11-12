@@ -1,11 +1,30 @@
 -- Migração 003: rastreabilidade (auditoria reforçada) + chaves de redes sociais
--- Aditiva. Executar após backup. Compatível com o estado aplicado no ambiente em 2026-11-09.
+-- Aditiva. Executar após backup. IDEMPOTENTE: pode correr múltiplas vezes sem erro.
 
-ALTER TABLE registo_admin ADD COLUMN motivo varchar(255) NULL;
-ALTER TABLE registo_admin ADD COLUMN antes_json mediumtext NULL;
-ALTER TABLE registo_admin ADD COLUMN depois_json mediumtext NULL;
-ALTER TABLE registo_admin ADD COLUMN user_agent varchar(255) NULL;
+SET @db := DATABASE();
 
+-- Colunas de rastreabilidade (só adiciona se não existirem)
+SET @sql := (SELECT IF(COUNT(*)=0,
+  "ALTER TABLE registo_admin ADD COLUMN motivo VARCHAR(255) NULL",
+  "SELECT 'registo_admin.motivo exists'") FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA=@db AND TABLE_NAME='registo_admin' AND COLUMN_NAME='motivo');
+PREPARE s FROM @sql; EXECUTE s; DEALLOCATE PREPARE s;
+
+SET @sql := (SELECT IF(COUNT(*)=0,
+  "ALTER TABLE registo_admin ADD COLUMN antes_json MEDIUMTEXT NULL",
+  "SELECT 'registo_admin.antes_json exists'") FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA=@db AND TABLE_NAME='registo_admin' AND COLUMN_NAME='antes_json');
+PREPARE s FROM @sql; EXECUTE s; DEALLOCATE PREPARE s;
+
+SET @sql := (SELECT IF(COUNT(*)=0,
+  "ALTER TABLE registo_admin ADD COLUMN depois_json MEDIUMTEXT NULL",
+  "SELECT 'registo_admin.depois_json exists'") FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA=@db AND TABLE_NAME='registo_admin' AND COLUMN_NAME='depois_json');
+PREPARE s FROM @sql; EXECUTE s; DEALLOCATE PREPARE s;
+
+SET @sql := (SELECT IF(COUNT(*)=0,
+  "ALTER TABLE registo_admin ADD COLUMN user_agent VARCHAR(255) NULL",
+  "SELECT 'registo_admin.user_agent exists'") FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA=@db AND TABLE_NAME='registo_admin' AND COLUMN_NAME='user_agent');
+PREPARE s FROM @sql; EXECUTE s; DEALLOCATE PREPARE s;
+
+-- Configurações de redes sociais (INSERT IGNORE já é idempotente)
 INSERT IGNORE INTO configuracoes (chave, valor, descricao) VALUES
 ('telegram_url','','URL do Telegram (canal/grupo/perfil).'),
 ('youtube_url','','URL do YouTube.'),
