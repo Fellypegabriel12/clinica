@@ -21,6 +21,8 @@ $campos = [
     'gateway_ambiente'              => ['Ambiente gateway',                 'text',  'teste ou producao.'],
     'site_base_url'                 => ['URL público do site',              'text',  'URL absoluto usado nos retornos do gateway (ex.: https://clinicadentaria.pt ou https://dominio.pt/clinica), sem barra final. Vazio = deteta a partir do pedido.'],
     'gateway_webhook_segredo'       => ['Segredo webhook (gateway)',        'password',  'Token para autenticar callbacks. Deixar em branco para manter o valor atual.'],
+    'stripe_secret_key'             => ['Stripe chave secreta (API)',       'password',  'sk_test_... para testes. Nunca colar chaves live em ambiente de teste. Deixar em branco para manter.'],
+    'stripe_webhook_secret'         => ['Stripe segredo do webhook',        'password',  'whsec_... do endpoint ou do Stripe CLI. Deixar em branco para manter.'],
     'eupago_api_key'                => ['Eupago API key (sandbox/prod.)',   'password',  'Opcional; credenciais do fornecedor. Deixar em branco para manter.'],
     'bloqueio_login_min'            => ['Bloqueio após logins falhados (min)', 'int', 'Após N tentativas falhadas.'],
     'max_tentativas_login'          => ['Máx. tentativas de login',        'int',   'Antes de bloquear.'],
