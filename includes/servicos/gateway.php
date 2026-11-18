@@ -96,7 +96,10 @@ final class GatewayStripe implements GatewayPagamento {
         $tipo = (string)($ctx['tipo'] ?? 'total');
         $base = gateway_base_url($this->pdo);
         $success = $base . '/pagamento-retorno.php?ref=' . urlencode($ref) . '&stripe=success&session_id={CHECKOUT_SESSION_ID}';
-        $cancel  = $base . '/marcar-pagamento.php?ref=' . urlencode($ref) . '&stripe=cancel';
+        // Após criar a marcação, a sessão do wizard é limpa. O cancelamento tem
+        // de voltar a uma página que consulte a marcação pela referência, não ao
+        // formulário que depende dessa sessão.
+        $cancel  = $base . '/pagamento-retorno.php?ref=' . urlencode($ref) . '&stripe=cancel';
 
         $params = [
             'mode' => 'payment',
