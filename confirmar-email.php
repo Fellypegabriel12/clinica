@@ -1,6 +1,7 @@
 <?php
 declare(strict_types=1);
 require __DIR__ . '/includes/config.php';
+require __DIR__ . '/includes/marcacao.php';
 
 if (utilizador_atual() !== null) {
     redirecionar('area-pessoal.php');
