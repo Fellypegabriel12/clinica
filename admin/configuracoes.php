@@ -2,6 +2,7 @@
 declare(strict_types=1);
 require __DIR__ . '/../includes/config.php';
 require __DIR__ . '/../includes/gestao.php';
+require __DIR__ . '/../includes/gateway.php';
 
 $u   = exigir_login(['admin']);
 $pdo = db();
@@ -14,10 +15,11 @@ $campos = [
     'pagamento_limite_min'          => ['Prazo para pagar online (min)',   'int',   'Após este prazo, a marcação é cancelada.'],
     'pagamento_presencial_ativo'    => ['Aceitar pagamento presencial',   'bool',  '1 = sim, 0 = não.'],
     'pagamento_sinal_ativo'         => ['Aceitar sinal',                   'bool',  '1 = sim, 0 = não.'],
-    'pagamento_online_ativo'        => ['Aceitar pagamento eletrónico',    'bool',  '1 = sim, 0 = não (requer gateway configurado).'],
+    'pagamento_online_ativo'        => ['Aceitar pagamento eletrónico',    'bool',  '1 = sim, 0 = não. Só fica disponível com gateway Stripe totalmente configurado (STRIPE_SECRET_KEY + STRIPE_WEBHOOK_SECRET).'],
     'metodos_pagamento_presenciais' => ['Métodos presenciais (códigos)',    'text',  'CSV: dinheiro,cartao_debito,cartao_credito,mbway_presencial,transferencia,outro'],
-    'gateway_pagamentos'            => ['Gateway online',                   'text',  'eupago, ifthenpay ou vazio.'],
+    'gateway_pagamentos'            => ['Gateway online',                   'text',  'stripe, eupago ou vazio. Stripe lê as credenciais das variáveis de ambiente; Eupago está em scaffold e não inicia cobranças.'],
     'gateway_ambiente'              => ['Ambiente gateway',                 'text',  'teste ou producao.'],
+    'site_base_url'                 => ['URL público do site',              'text',  'URL absoluto usado nos retornos do gateway (ex.: https://clinicadentaria.pt ou https://dominio.pt/clinica), sem barra final. Vazio = deteta a partir do pedido.'],
     'gateway_webhook_segredo'       => ['Segredo webhook (gateway)',        'password',  'Token para autenticar callbacks. Deixar em branco para manter o valor atual.'],
     'eupago_api_key'                => ['Eupago API key (sandbox/prod.)',   'password',  'Opcional; credenciais do fornecedor. Deixar em branco para manter.'],
     'bloqueio_login_min'            => ['Bloqueio após logins falhados (min)', 'int', 'Após N tentativas falhadas.'],
@@ -177,6 +179,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
                 $v = mb_substr($v, 0, 255);
             } elseif ($tipo === 'int') {
+                if ($v === '') {
+                    continue; // campo opcional vazio: manter valor atual/default
+                }
                 if (!ctype_digit($v) || (int)$v < 0 || (int)$v > 99999) {
                     $erros[] = $rotulo . ': deve ser um número inteiro ≥ 0.';
                     continue;
@@ -219,6 +224,10 @@ $st = $pdo->query('SELECT chave, valor FROM configuracoes');
 $atuais = [];
 foreach ($st as $r) { $atuais[$r['chave']] = $r['valor']; }
 
+$gatewayAtual  = trim((string)($atuais['gateway_pagamentos'] ?? ''));
+$onlineAtivo   = (string)($atuais['pagamento_online_ativo'] ?? '0') === '1';
+$gatewayPronto = gateway_pagamento_disponivel($pdo);
+
 $tituloPagina = 'Configurações';
 require __DIR__ . '/../includes/cabecalho.php';
 echo estilos_gestao();
@@ -226,6 +235,24 @@ echo estilos_gestao();
 
 <p><a href="admin/index.php">← Painel</a></p>
 <h1>Configurações</h1>
+
+<p class="ajuda">
+    Estado do pagamento online: gateway = <strong><?= $gatewayAtual !== '' ? e($gatewayAtual) : 'vazio' ?></strong>;
+    interruptor = <strong><?= $onlineAtivo ? 'ativo' : 'inativo' ?></strong>;
+    método visível aos pacientes = <strong><?= ($onlineAtivo && $gatewayPronto) ? 'sim' : 'não' ?></strong>.
+</p>
+<?php if ($onlineAtivo && !$gatewayPronto): ?>
+    <div class="alerta alerta-erro" role="alert">
+        O pagamento eletrónico está marcado como ativo, mas o gateway não está operacional.
+        Os pacientes não verão essa opção. Configure o Stripe (chave secreta + segredo de webhook)
+        ou defina «Aceitar pagamento eletrónico» como «Não».
+    </div>
+<?php elseif ($gatewayAtual !== '' && !$gatewayPronto): ?>
+    <div class="alerta alerta-info" role="status">
+        O gateway «<?= e($gatewayAtual) ?>» está selecionado mas não é utilizável para cobranças
+        (Eupago em scaffold ou credenciais Stripe incompletas). O pagamento presencial continua disponível.
+    </div>
+<?php endif; ?>
 <p class="ajuda">Estes valores controlam o comportamento do site. As alterações aplicam-se imediatamente. Campos sensíveis (palavras-passe/segredos) ficam mascarados; deixe em branco para manter o valor atual. O envio automático de emails (SMTP) só funciona quando existir transporte/integração configurado e testado no servidor.</p>
 
 <?php foreach ($erros as $erro): ?>

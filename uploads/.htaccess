@@ -1,2 +1,13 @@
-﻿# Impedir listagem de diretórios em uploads
+# Impedir listagem de diretórios em uploads
 Options -Indexes
+
+# Bloquear execução de scripts no diretório de uploads (defesa em profundidade)
+# Imagens e outros ficheiros estáticos continuam servidos normalmente.
+<FilesMatch "\.(php|phtml|phar|cgi|pl|py|sh|asp|aspx|jsp)$">
+    <IfModule mod_authz_core.c>
+        Require all denied
+    </IfModule>
+    <IfModule !mod_authz_core.c>
+        Deny from all
+    </IfModule>
+</FilesMatch>

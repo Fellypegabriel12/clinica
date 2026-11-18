@@ -43,6 +43,6 @@ $nome = 'cv-' . $id . '.' . $ext;
 header('X-Content-Type-Options: nosniff');
 header('Content-Type: ' . $mime);
 header('Content-Length: ' . (string)filesize($full));
-header('Content-Disposition: inline; filename="' . $nome . '"');
+header('Content-Disposition: attachment; filename="' . $nome . '"');
 readfile($full);
 exit;

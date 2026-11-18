@@ -6,6 +6,10 @@ declare(strict_types=1);
    Este ficheiro é incluído no início de TODAS as páginas.
    ===================================================================== */
 
+// As datas/horas de calendário do projeto são hora local da clínica.
+// A BD guarda-as em colunas DATETIME sem fuso; o PHP tem de usar o mesmo fuso.
+date_default_timezone_set('Europe/Lisbon');
+
 // ---------- 1. Definições (muda aqui se for preciso) ----------
 const DB_HOST = 'localhost';
 const DB_NAME = 'clinica_dentaria';
@@ -79,6 +83,22 @@ if (!headers_sent()) {
     }
 }
 
+function fuso_clinica(): DateTimeZone
+{
+    return new DateTimeZone('Europe/Lisbon');
+}
+
+/**
+ * Offset atual (ou de um instante concreto) da clínica, no formato MySQL.
+ * Permite fixar a sessão da BD sem depender das tabelas de timezone do MySQL
+ * nem do nome localizado devolvido por @@system_time_zone.
+ */
+function offset_clinica(?DateTimeImmutable $momento = null): string
+{
+    $m = $momento ?? new DateTimeImmutable('now', fuso_clinica());
+    return $m->setTimezone(fuso_clinica())->format('P');
+}
+
 function db(): PDO
 {
     static $pdo = null;
@@ -94,6 +114,12 @@ function db(): PDO
                     PDO::ATTR_EMULATE_PREPARES   => false,
                 ]
             );
+            $offset = offset_clinica();
+            if (preg_match('/^[+-]\d{2}:\d{2}$/', $offset) === 1) {
+                // NOW() passa a devolver sempre a hora local da clínica,
+                // independentemente do fuso configurado no sistema operativo.
+                $pdo->exec("SET time_zone = '{$offset}'");
+            }
         } catch (PDOException $e) {
             error_log('Erro de ligação à BD: ' . $e->getMessage());
             http_response_code(500);
@@ -143,8 +169,13 @@ function csrf_campo(): string
 
 function csrf_validar(): void
 {
-    $enviado = $_POST['csrf'] ?? '';
-    if (!is_string($enviado) || !hash_equals($_SESSION['csrf'] ?? '', $enviado)) {
+    $enviado  = $_POST['csrf'] ?? '';
+    $esperado = $_SESSION['csrf'] ?? '';
+    // Sem token na sessão não há validação possível: rejeitar sempre.
+    // (Antes, sessão sem token + POST sem token passava por hash_equals('', '').)
+    if (!is_string($enviado) || $enviado === ''
+        || !is_string($esperado) || $esperado === ''
+        || !hash_equals($esperado, $enviado)) {
         http_response_code(403);
         exit('Pedido inválido (token de segurança em falta ou expirado). Volta atrás e tenta outra vez.');
     }

@@ -53,12 +53,25 @@ $tratRentaveis = $st->fetchAll();
 $pacienteQ = trim((string)($_GET['paciente'] ?? ''));
 $histPaciente = [];
 if ($pacienteQ !== '') {
+    // CORREÇÃO (A8): o total previsto soma consultas do próprio paciente (não duplica
+    // marcações com várias consultas nem inclui consultas canceladas) e os pagamentos
+    // só são atribuídos por consulta do paciente ou por marcação com um único paciente.
+    // Pagamentos em marcações partilhadas sem consulta_id associada não são imputáveis.
     $st = $pdo->prepare("SELECT p.id, p.nome_completo, p.email, p.numero_utente_sns,
-        COALESCE(SUM(m.total_previsto),0) total_prev,
-        COALESCE((SELECT SUM(GREATEST(0,pg.valor-pg.valor_reembolsado)) FROM pagamentos pg JOIN marcacoes mm ON mm.id=pg.marcacao_id WHERE mm.utilizador_id IN (SELECT utilizador_id FROM autorizacoes_paciente ap2 WHERE ap2.paciente_id=p.id) AND pg.estado IN ('pago','reembolsado','parcialmente_reembolsado')),0) pago
+        COALESCE(SUM(c.preco_total),0) total_prev,
+        COALESCE((SELECT SUM(GREATEST(0,pg.valor-pg.valor_reembolsado))
+            FROM pagamentos pg
+            WHERE pg.estado IN ('pago','reembolsado','parcialmente_reembolsado')
+              AND (
+                pg.consulta_id IN (SELECT cx.id FROM consultas cx WHERE cx.paciente_id=p.id)
+                OR (
+                    pg.consulta_id IS NULL
+                    AND pg.marcacao_id IN (SELECT cy.marcacao_id FROM consultas cy WHERE cy.paciente_id=p.id)
+                    AND (SELECT COUNT(DISTINCT cz.paciente_id) FROM consultas cz WHERE cz.marcacao_id=pg.marcacao_id)=1
+                )
+              )),0) pago
         FROM pacientes p
-        LEFT JOIN consultas c ON c.paciente_id=p.id
-        LEFT JOIN marcacoes m ON m.id=c.marcacao_id
+        LEFT JOIN consultas c ON c.paciente_id=p.id AND c.estado <> 'cancelada'
         WHERE p.nome_completo LIKE ? OR p.email LIKE ? OR p.numero_utente_sns LIKE ?
         GROUP BY p.id ORDER BY p.nome_completo LIMIT 30");
     $like = '%'.$pacienteQ.'%';
@@ -110,7 +123,7 @@ echo estilos_gestao();
 <div class="tabela-scroll"><table class="tabela"><thead><tr><th>Paciente</th><th>Contacto</th><th>Nº utente SNS</th><th>Total previsto (consultas)</th><th>Pago (estimado)</th></tr></thead><tbody>
 <?php foreach ($histPaciente as $p): ?><tr><td><?= e($p['nome_completo']) ?></td><td class="ajuda"><?= e($p['email'] ?? '—') ?></td><td><?= e($p['numero_utente_sns'] ?? '—') ?></td><td><?= e(formatar_preco($p['total_prev'])) ?></td><td><?= e(formatar_preco($p['pago'])) ?></td></tr><?php endforeach; ?>
 </tbody></table></div>
-<p class="ajuda">Valores agregados; para detalhe por movimento use <a href="admin/pagamentos.php?q=<?= e(urlencode($pacienteQ)) ?>">Pagamentos</a> com o termo de pesquisa.</p>
+<p class="ajuda">Totais por consultas não canceladas. Pagamentos em marcações partilhadas sem consulta associada não são imputados a um paciente específico. Para detalhe por movimento use <a href="admin/pagamentos.php?q=<?= e(urlencode($pacienteQ)) ?>">Pagamentos</a> com o termo de pesquisa.</p>
 <?php endif; ?></section>
 
 <?php require __DIR__ . '/../includes/rodape.php'; ?>

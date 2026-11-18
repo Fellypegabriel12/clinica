@@ -21,7 +21,7 @@ $horasCancelar = config_valor($pdo, 'cancelamento_antecedencia_h', 24);
 $limiteMin  = config_valor($pdo, 'pagamento_limite_min', 30);
 
 $gateway = gateway_obter($pdo);
-$gatewayConfigurado = !($gateway instanceof GatewayNaoConfigurado);
+$gatewayConfigurado = gateway_pagamento_disponivel($pdo);
 
 $metodos = [
     'presencial' => [

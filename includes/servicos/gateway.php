@@ -94,11 +94,7 @@ final class GatewayStripe implements GatewayPagamento {
         $marcacaoId = (int)($ctx['marcacao_id'] ?? 0);
         $pagamentoId = (int)($ctx['pagamento_id'] ?? 0);
         $tipo = (string)($ctx['tipo'] ?? 'total');
-        $base = rtrim((string)config_valor_texto($this->pdo, 'site_base_url', ''), '/');
-        if ($base === '' && !empty($_SERVER['HTTP_HOST'])) {
-            $scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
-            $base = $scheme . '://' . $_SERVER['HTTP_HOST'];
-        }
+        $base = gateway_base_url($this->pdo);
         $success = $base . '/pagamento-retorno.php?ref=' . urlencode($ref) . '&stripe=success&session_id={CHECKOUT_SESSION_ID}';
         $cancel  = $base . '/marcar-pagamento.php?ref=' . urlencode($ref) . '&stripe=cancel';
 
@@ -205,6 +201,17 @@ final class GatewayStripe implements GatewayPagamento {
         $gatewayMetodo = 'cartao_online';
         $txRef = (string)($obj['id'] ?? $event['id']);
 
+        // Valor e moeda do evento. O Stripe usa a unidade mínima da moeda;
+        // a lista abaixo cobre as moedas sem casas decimais.
+        $valorEvento = null;
+        $moedaEvento = '';
+        $centavos = $obj['amount_total'] ?? $obj['amount'] ?? null;
+        if (is_numeric($centavos)) {
+            $moedaEvento = mb_strtolower(trim((string)($obj['currency'] ?? '')));
+            $semDecimais = in_array($moedaEvento, ['bif','clp','djf','gnf','jpy','kmf','krw','mga','pyg','rwf','ugx','vnd','vuv','xaf','xof','xpf'], true);
+            $valorEvento = round(((float)$centavos) / ($semDecimais ? 1 : 100), 2);
+        }
+
         if ($type === 'checkout.session.completed') {
             $paid = ($obj['payment_status'] ?? '') === 'paid';
             $confirmado = $paid;
@@ -233,6 +240,8 @@ final class GatewayStripe implements GatewayPagamento {
                 'estado' => 'em_processamento',
                 'referencia_transacao' => (string)($obj['payment_intent'] ?? $obj['id'] ?? ''),
                 'gateway_metodo' => 'cartao_online',
+                'valor' => $valorEvento,
+                'moeda' => $moedaEvento !== '' ? $moedaEvento : null,
                 'refund' => true,
             ], 'erro' => ''];
         } else {
@@ -259,6 +268,8 @@ final class GatewayStripe implements GatewayPagamento {
             'estado' => $estado,
             'referencia_transacao' => $txRef,
             'gateway_metodo' => $gatewayMetodo,
+            'valor' => $valorEvento,
+            'moeda' => $moedaEvento !== '' ? $moedaEvento : null,
         ], 'erro' => ''];
     }
 }
@@ -270,6 +281,38 @@ function gateway_obter(PDO $pdo): GatewayPagamento {
     return new GatewayNaoConfigurado();
 }
 
+/**
+ * URL base absoluta para os retornos do gateway.
+ * Prioridade: site_base_url (configuração) > domínio do pedido + BASE_URL.
+ * Sem host (CLI) devolve apenas o caminho; nesse caso o Stripe rejeita a URL,
+ * pelo que site_base_url deve estar configurado em produção.
+ */
+function gateway_base_url(PDO $pdo): string
+{
+    $host = trim((string)($_SERVER['HTTP_HOST'] ?? ''));
+    if ($host !== '' && !preg_match('/^[A-Za-z0-9.\-:\[\]]+$/', $host)) {
+        $host = ''; // rejeita Host inválido (cabeçalho não confiável)
+    }
+    $scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
+    $basePath = rtrim(defined('BASE_URL') ? (string)BASE_URL : '/', '/');
+
+    $config = trim((string)config_valor_texto($pdo, 'site_base_url', ''));
+    if ($config !== '') {
+        if (preg_match('~^https?://~i', $config)) {
+            return rtrim($config, '/');
+        }
+        if ($host !== '') {
+            return $scheme . '://' . $host . '/' . ltrim($config, '/');
+        }
+        return rtrim($config, '/');
+    }
+
+    if ($host !== '') {
+        return $scheme . '://' . $host . $basePath;
+    }
+    return $basePath;
+}
+
 function gateway_stripe_configurado(PDO $pdo): bool {
     $sk = getenv('STRIPE_SECRET_KEY');
     if (is_string($sk) && trim($sk) !== '') { return true; }
@@ -279,4 +322,17 @@ function gateway_stripe_webhook_configurado(PDO $pdo): bool {
     $s = getenv('STRIPE_WEBHOOK_SECRET');
     if (is_string($s) && trim($s) !== '') { return true; }
     return trim((string)config_valor_texto($pdo, 'stripe_webhook_secret', '')) !== '';
+}
+
+/**
+ * Indica se existe um gateway realmente utilizável para iniciar e confirmar
+ * pagamentos online. O Eupago está em scaffold (não inicia cobranças) e o
+ * Stripe exige chave secreta + segredo de webhook. Sem isto, o método online
+ * não deve aparecer aos pacientes, mesmo com pagamento_online_ativo=1.
+ */
+function gateway_pagamento_disponivel(PDO $pdo): bool
+{
+    return gateway_obter($pdo) instanceof GatewayStripe
+        && gateway_stripe_configurado($pdo)
+        && gateway_stripe_webhook_configurado($pdo);
 }

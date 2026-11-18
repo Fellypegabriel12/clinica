@@ -1,3 +1,13 @@
 <FilesMatch "\.svg$">
     ForceType text/plain
 </FilesMatch>
+
+# Bloquear execução de scripts nesta pasta de uploads
+<FilesMatch "\.(php|phtml|phar|cgi|pl|py|sh|asp|aspx|jsp)$">
+    <IfModule mod_authz_core.c>
+        Require all denied
+    </IfModule>
+    <IfModule !mod_authz_core.c>
+        Deny from all
+    </IfModule>
+</FilesMatch>

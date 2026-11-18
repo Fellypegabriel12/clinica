@@ -1,6 +1,13 @@
 <?php
 declare(strict_types=1);
 
+/**
+ * Evento de gateway inválido de forma permanente (ex.: valor/moeda não
+ * correspondem ao pagamento registado). O webhook responde 4xx para evitar
+ * retentativas infinitas.
+ */
+final class GatewayEventoInvalidoException extends RuntimeException {}
+
 function pagamentos_metodos_presenciais(): array
 {
     $raw = (string)config_valor_texto(db(), 'metodos_pagamento_presenciais', 'dinheiro,cartao_debito,cartao_credito,mbway_presencial');
@@ -211,6 +218,33 @@ function registar_reembolso_administrativo(PDO $pdo, int $pagamentoId, float $va
     }
 }
 
+/**
+ * Valida o valor/moeda de um evento de gateway contra o pagamento registado.
+ * Eventos sem valor (gateways que não o enviam) não são bloqueados; quando o
+ * valor existe, a tolerância máxima é 1 cêntimo.
+ *
+ * @return array{ok:bool, verificado:bool, erro:string}
+ */
+function gateway_validar_valor_evento(?float $valorEvento, ?string $moedaEvento, float $valorEsperado, string $moedaEsperada): array
+{
+    $moedaEsperada = mb_strtolower(trim($moedaEsperada));
+    $moedaEvento   = $moedaEvento === null ? '' : mb_strtolower(trim($moedaEvento));
+
+    if ($valorEvento === null) {
+        return ['ok' => true, 'verificado' => false, 'erro' => ''];
+    }
+    if (!is_finite($valorEvento) || $valorEvento < 0) {
+        return ['ok' => false, 'verificado' => true, 'erro' => 'valor do evento inválido.'];
+    }
+    if (abs(round($valorEvento, 2) - round($valorEsperado, 2)) > 0.01) {
+        return ['ok' => false, 'verificado' => true, 'erro' => 'valor do evento não corresponde ao pagamento.'];
+    }
+    if ($moedaEvento !== '' && $moedaEsperada !== '' && $moedaEvento !== $moedaEsperada) {
+        return ['ok' => false, 'verificado' => true, 'erro' => 'moeda do evento não corresponde à configuração.'];
+    }
+    return ['ok' => true, 'verificado' => true, 'erro' => ''];
+}
+
 function gateway_confirmar_pagamento(PDO $pdo, array $evt): array
 {
     $gateway = (string)($evt['gateway'] ?? '');
@@ -248,6 +282,25 @@ function gateway_confirmar_pagamento(PDO $pdo, array $evt): array
         if (!$p) { throw new RuntimeException('Pagamento alvo não encontrado.'); }
         if ($p['marc_estado'] === 'cancelada' && $estadoDestino === 'pago') {
             $estadoDestino = 'em_processamento';
+        }
+        if ($estadoDestino === 'pago') {
+            $valorEvento = null;
+            if (array_key_exists('valor', $evt) && $evt['valor'] !== null && $evt['valor'] !== '') {
+                if (!is_numeric($evt['valor'])) {
+                    throw new GatewayEventoInvalidoException('Pagamento rejeitado: valor do evento inválido.');
+                }
+                $valorEvento = (float)$evt['valor'];
+            }
+            $moedaEvento = isset($evt['moeda']) && is_scalar($evt['moeda']) ? (string)$evt['moeda'] : null;
+            $validacao = gateway_validar_valor_evento(
+                $valorEvento,
+                $moedaEvento,
+                (float)$p['valor'],
+                (string)config_valor_texto($pdo, 'moeda', 'EUR')
+            );
+            if (!$validacao['ok']) {
+                throw new GatewayEventoInvalidoException('Pagamento rejeitado: ' . $validacao['erro']);
+            }
         }
         $sql = "UPDATE pagamentos SET estado=?, gateway=?, gateway_metodo=?, idempotency_key=?, prestador=?, referencia_transacao=?, atualizado_em=NOW()";
         $params = [$estadoDestino, $gateway, $metodoGateway ?: null, $idempotency, $gateway, $referencia ?: ($p['referencia_transacao'] ?? null)];

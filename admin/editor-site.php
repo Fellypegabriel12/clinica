@@ -32,8 +32,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if ($tipo === 'texto') {
                 $valor = mb_substr(trim($valor), 0, 500);
             } elseif ($tipo === 'html') {
-                // remove tags perigosas
-                $valor = strip_tags($valor, '<p><br><strong><em><a><ul><ol><li><h2><h3><h4>');
+                // Allowlist de tags/atributos e validação de href (A9).
+                $valor = sanitizar_html_editor($valor);
             } else {
                 $valor = mb_substr(trim($valor), 0, 10000);
             }

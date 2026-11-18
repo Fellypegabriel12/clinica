@@ -22,22 +22,20 @@ function utc(string $dataHora): DateTimeImmutable
     return new DateTimeImmutable($dataHora, new DateTimeZone('UTC'));
 }
 
+/**
+ * Hora atual da clínica.
+ *
+ * A BD guarda hora local em colunas DATETIME. O valor de NOW() é, por isso,
+ * tratado como "wall clock" e rotulado como UTC: assim a aritmética de datas
+ * não sofre deslocamentos de horário de verão e as comparações com os valores
+ * lidos da BD (também tratados por utc()) são coerentes.
+ *
+ * A sessão MySQL é fixada ao offset de Europe/Lisbon em db().
+ */
 function agora_bd(PDO $pdo): DateTimeImmutable
 {
-    static $fuso = null;
-    if ($fuso === null) {
-        try {
-            $tz = (string)$pdo->query('SELECT @@session.time_zone')->fetchColumn();
-            if ($tz === '' || strtoupper($tz) === 'SYSTEM') {
-                $tz = (string)$pdo->query('SELECT @@system_time_zone')->fetchColumn();
-            }
-            $fuso = new DateTimeZone($tz !== '' ? $tz : 'UTC');
-        } catch (Throwable $e) {
-            $fuso = new DateTimeZone('UTC');
-        }
-    }
     $agora = (string)$pdo->query('SELECT NOW()')->fetchColumn();
-    return new DateTimeImmutable($agora, $fuso);
+    return new DateTimeImmutable($agora, new DateTimeZone('UTC'));
 }
 
 function tempo_em_minutos(string $hhmmss): int
@@ -118,7 +116,7 @@ function slots_do_dia(PDO $pdo, int $dentistaId, DateTimeImmutable $dia, string 
 {
     $bloco  = config_valor($pdo, 'bloco_agenda_min', 30);
     $diaSem = (int)$dia->format('N');
-    $agora  = agora_bd($pdo)->setTimezone(new DateTimeZone('UTC'))->format('Y-m-d H:i:s');
+    $agora  = agora_bd($pdo)->format('Y-m-d H:i:s');
     $ini    = $dia->format('Y-m-d') . ' 00:00:00';
     $fim    = $dia->modify('+1 day')->format('Y-m-d') . ' 00:00:00';
 

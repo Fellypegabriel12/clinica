@@ -6,8 +6,6 @@ require __DIR__ . '/includes/conta.php';
 require __DIR__ . '/includes/pagamentos.php';
 require __DIR__ . '/includes/gateway.php';
 
-$__gatewayForcado = trim((string)($_GET['gateway'] ?? ''));
-
 header('Content-Type: application/json; charset=utf-8');
 
 $metodoHttp = (string)($_SERVER['REQUEST_METHOD'] ?? '');
@@ -43,11 +41,9 @@ if ($raw !== '' && stripos((string)($_SERVER['CONTENT_TYPE'] ?? ''), 'applicatio
 
 try {
     $pdo = db();
-    if ($__gatewayForcado === 'stripe') {
-        $gateway = new GatewayStripe($pdo);
-    } else {
-        $gateway = gateway_obter($pdo);
-    }
+    // O gateway é sempre o configurado no sistema. Nunca deve ser escolhido
+    // por query string: isso permitiria contornar o gateway ativo.
+    $gateway = gateway_obter($pdo);
 
     $val = $gateway->validarWebhook($request, $raw);
 
@@ -127,6 +123,11 @@ try {
         'deduplicado' => !empty($res['deduplicado']),
         'estado' => $res['estado'] ?? null,
     ]);
+} catch (GatewayEventoInvalidoException $e) {
+    // Evento inválido de forma permanente: 4xx para o gateway não retentar.
+    error_log('Webhook pagamento rejeitado: ' . $e->getMessage());
+    http_response_code(400);
+    echo json_encode(['ok' => false, 'erro' => 'Evento inválido.']);
 } catch (Throwable $e) {
     error_log('Webhook pagamento erro: ' . $e->getMessage());
     // FIX (médio): erro de processamento devolve 500 para o gateway RETENTAR.
