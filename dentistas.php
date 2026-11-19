@@ -166,6 +166,30 @@ require __DIR__ . '/includes/cabecalho.php';
         </select>
     </div>
 
+       <div class="campo">
+        <label for="tratamento">Tratamento</label>
+        <select id="tratamento" name="tratamento">
+            <option value="0">Todos</option>
+            <?php foreach ($tratamentos as $t): ?>
+                <option value="<?= (int)$t['id'] ?>" <?= $filtroTrat === (int)$t['id'] ? 'selected' : '' ?>>
+                    <?= e($t['nome']) ?>
+                </option>
+            <?php endforeach; ?>
+        </select>
+    </div>
+
+       <div class="campo">
+        <label for="tratamento">Tratamento</label>
+        <select id="tratamento" name="tratamento">
+            <option value="0">Todos</option>
+            <?php foreach ($tratamentos as $t): ?>
+                <option value="<?= (int)$t['id'] ?>" <?= $filtroTrat === (int)$t['id'] ? 'selected' : '' ?>>
+                    <?= e($t['nome']) ?>
+                </option>
+            <?php endforeach; ?>
+        </select>
+    </div>
+
     <div class="campo">
         <button type="submit" class="botao">Filtrar</button>
         <?php if ($filtroEsp > 0 || $filtroTrat > 0): ?>
