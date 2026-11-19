@@ -17,6 +17,11 @@ uploads/cv/*
 Thumbs.db
 .DS_Store
 
+# Segredos locais (nunca versionar)
+.env
+.env.*
+!.env.example
+
 # Backups/SQL fora de controlo (usar migracoes/ para mudan?as versionadas)
 *.bak
 *.old

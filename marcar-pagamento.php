@@ -20,7 +20,6 @@ $valorSinal = round($total * $pctSinal / 100, 2);
 $horasCancelar = config_valor($pdo, 'cancelamento_antecedencia_h', 24);
 $limiteMin  = config_valor($pdo, 'pagamento_limite_min', 30);
 
-$gateway = gateway_obter($pdo);
 $gatewayConfigurado = gateway_pagamento_disponivel($pdo);
 
 $metodos = [
@@ -45,7 +44,7 @@ $metodos = [
             ? 'Indisponível: o preço final de alguns tratamentos depende da avaliação clínica.'
             : 'Pagas ' . formatar_preco($total) . ' agora, por via eletrónica.' . (MODO_DEV ? ' (Pagamento em modo demonstração.)' : ' (Processado pelo gateway configurado; confirmação apenas por notificação autenticada do servidor.)'),
         'valor' => $total,
-        'modo' => MODO_DEV ? 'demo' : 'gateway',
+        'modo' => $gatewayConfigurado ? 'gateway' : 'demo',
     ],
 ];
 
@@ -135,38 +134,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
 
             // 3. O pagamento (registado como pendente; só passa a "pago" com confirmação autenticada)
+            $gatewayNome = $modoPagamento === 'gateway' ? 'stripe' : null;
             $pdo->prepare(
-                "INSERT INTO pagamentos (marcacao_id, metodo, valor, estado) VALUES (?, ?, ?, 'pendente')"
-            )->execute([$marcacaoId, $metodo, $metodos[$metodo]['valor']]);
+                "INSERT INTO pagamentos (marcacao_id, metodo, valor, estado, gateway) VALUES (?, ?, ?, 'pendente', ?)"
+            )->execute([$marcacaoId, $metodo, $metodos[$metodo]['valor'], $gatewayNome]);
             $pagamentoId = (int)$pdo->lastInsertId();
 
-            $redirectExterno = null;
-            if ($modoPagamento === 'gateway') {
-                $ctxGateway = [
-                    'marcacao_id' => $marcacaoId,
-                    'pagamento_id' => $pagamentoId,
-                    'referencia' => $ref,
-                    'valor' => $metodos[$metodo]['valor'],
-                    'metodo' => $metodo,
-                    'utilizador_id' => $u['id'],
-                    'retorno_url' => (string)config_valor_texto($pdo, 'gateway_retorno_base', '') ?: null,
-                ];
-                $ini = $gateway->iniciarPagamento($ctxGateway);
-                if (empty($ini['ok'])) {
-                    throw new RuntimeException((string)($ini['erro'] ?? 'Não foi possível iniciar o pagamento online. Utilize pagamento na clínica ou contacte a receção.'));
-                }
-                if (!empty($ini['redirect_url'])) {
-                    $redirectExterno = (string)$ini['redirect_url'];
-                }
-                $pdo->prepare('UPDATE pagamentos SET gateway = ?, gateway_metodo = ?, referencia_transacao = COALESCE(?, referencia_transacao), estado = CASE WHEN ? = 1 THEN \'em_processamento\' ELSE estado END WHERE id = ?')
-                    ->execute([
-                        $gateway->nome(),
-                        (string)($ini['gateway_metodo'] ?? $metodo),
-                        !empty($ini['referencia']) ? (string)$ini['referencia'] : null,
-                        !empty($ini['redirect_url']) ? 1 : 0,
-                        $pagamentoId,
-                    ]);
-            }
+            // O PaymentIntent e criado em checkout.php, sempre com o valor
+            // calculado no servidor. Aqui apenas encaminhamos o paciente.
 
             // 4. Notificação interna
             if ($estado === 'confirmada') {
@@ -186,13 +161,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 flash_definir('sucesso', 'Marcação confirmada!');
                 redirecionar('marcar-confirmacao.php?ref=' . urlencode($ref));
             }
-            if ($modoPagamento === 'gateway' && $redirectExterno) {
-                header('Location: ' . $redirectExterno);
-                exit;
-            }
             if ($modoPagamento === 'gateway') {
-                // Gateway iniciado sem redirect (ex.: referência MB/Multibanco gerada) — mostrar estado.
-                redirecionar('pagamento-retorno.php?ref=' . urlencode($ref));
+                redirecionar('checkout.php?ref=' . urlencode($ref));
             }
             redirecionar('marcar-pagamento-demo.php?ref=' . urlencode($ref));
         } catch (RuntimeException $e) {

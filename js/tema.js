@@ -58,6 +58,25 @@
         if (guardar) {
             gravarCookie('tema', novo);
             try { localStorage.setItem('tema', novo); } catch (e) {}
+
+            // FIX: sincronizar com a conta quando autenticado.
+            // O endpoint guardar-tema.php existia mas nunca era chamado.
+            // Falha silenciosa: se o POST falhar, o tema continua gravado no browser.
+            if (html.dataset.logado === '1') {
+                var csrfMeta = document.querySelector('meta[name="csrf-token"]');
+                if (csrfMeta && csrfMeta.content) {
+                    try {
+                        fetch('guardar-tema.php', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                            body: 'tema=' + encodeURIComponent(novo)
+                                + '&csrf=' + encodeURIComponent(csrfMeta.content),
+                            credentials: 'same-origin',
+                            keepalive: true
+                        }).catch(function () { /* silencioso */ });
+                    } catch (e) { /* silencioso */ }
+                }
+            }
         }
     }
 

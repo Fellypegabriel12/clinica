@@ -86,7 +86,7 @@ if ($ate !== '' && preg_match('/^\d{4}-\d{2}-\d{2}$/', $ate)) { $where[] = 'COAL
 if ($q !== '') { $where[] = '(m.referencia LIKE ? OR u.nome_completo LIKE ? OR u.email LIKE ? OR p.referencia_transacao LIKE ?)'; $like = '%' . $q . '%'; array_push($params, $like,$like,$like,$like); }
 
 $sql = 'SELECT p.id, p.marcacao_id, p.consulta_id, p.metodo, p.metodo_detalhe, p.valor, p.estado, p.prestador, p.gateway, p.gateway_metodo,
-               p.referencia_transacao, p.valor_reembolsado, p.criado_em, p.pago_em, p.data_pagamento, p.registado_por, p.observacoes,
+               p.referencia_transacao, p.cartao_marca, p.cartao_ultimos4, p.valor_reembolsado, p.criado_em, p.pago_em, p.data_pagamento, p.registado_por, p.observacoes,
                m.referencia AS marcacao_ref, m.total_previsto, m.estado AS marcacao_estado,
                u.nome_completo AS cliente, u.email, staff.nome_completo AS staff_nome
           FROM pagamentos p
@@ -158,6 +158,7 @@ echo estilos_gestao();
         <dt>Consulta associada</dt><dd><?= $detalhe['consulta_id'] ? 'Consulta #'.(int)$detalhe['consulta_id'].($detalhe['consulta_inicio']?' · '.e((new DateTime($detalhe['consulta_inicio']))->format('d/m/Y H:i')):'').($detalhe['paciente_nome']?' · '.e($detalhe['paciente_nome']):'') : '— (nível marcação)' ?></dd>
         <dt>Valor</dt><dd><strong><?= e(formatar_preco($detalhe['valor'])) ?></strong><?php if ((float)$detalhe['valor_reembolsado']>0): ?> · reembolsado <?= e(formatar_preco($detalhe['valor_reembolsado'])) ?><?php endif; ?></dd>
         <dt>Método</dt><dd><?= e(pagamento_metodo_legivel($detalhe['metodo'], $detalhe['metodo_detalhe'] ?? null)) ?><?php if ($detalhe['gateway']): ?> · gateway <?= e($detalhe['gateway']) ?> (<?= e($detalhe['gateway_metodo'] ?? '—') ?>)<?php endif; ?></dd>
+        <dt>Cartão</dt><dd><?= ($detalhe['cartao_marca'] ?? '') !== '' && ($detalhe['cartao_ultimos4'] ?? '') !== '' ? e(pagamento_cartao_legivel((string)$detalhe['cartao_marca'], (string)$detalhe['cartao_ultimos4'])) : '— (sem dados de cartão guardados)' ?></dd>
         <dt>Estado</dt><dd><span class="estado-etiqueta"><?= e(pagamento_estado_legivel($detalhe['estado'])) ?></span></dd>
         <dt>Quando</dt><dd>Registo: <?= e((new DateTime($detalhe['criado_em']))->format('d/m/Y H:i')) ?><?php if ($detalhe['data_pagamento']): ?> · Pagamento: <?= e((new DateTime($detalhe['data_pagamento']))->format('d/m/Y H:i')) ?><?php elseif($detalhe['pago_em']): ?> · Pago: <?= e((new DateTime($detalhe['pago_em']))->format('d/m/Y H:i')) ?><?php endif; ?></dd>
         <dt>Referência transação</dt><dd><?= e($detalhe['referencia_transacao'] ?? '—') ?><?php if ($detalhe['idempotency_key']): ?> · idempotência: <span class="ajuda"><?= e($detalhe['idempotency_key']) ?></span><?php endif; ?></dd>
@@ -193,7 +194,7 @@ echo estilos_gestao();
                     <td><?= e((new DateTime($p['data_pagamento'] ?: $p['pago_em'] ?: $p['criado_em']))->format('d/m/Y H:i')) ?></td>
                     <td><strong><?= e($p['cliente']) ?></strong><br><span class="ajuda"><?= e($p['email']) ?></span></td>
                     <td><a href="marcar-confirmacao.php?ref=<?= e(urlencode($p['marcacao_ref'])) ?>"><?= e($p['marcacao_ref']) ?></a><?php if ($p['consulta_id']): ?><br><span class="ajuda">Consulta #<?= (int)$p['consulta_id'] ?></span><?php endif; ?></td>
-                    <td><?= e(pagamento_metodo_legivel($p['metodo'], $p['metodo_detalhe'] ?? null)) ?></td>
+                    <td><?= e(pagamento_metodo_legivel($p['metodo'], $p['metodo_detalhe'] ?? null)) ?><?php if (($p['cartao_marca'] ?? '') !== '' && ($p['cartao_ultimos4'] ?? '') !== ''): ?><br><span class="ajuda"><?= e(pagamento_cartao_legivel((string)$p['cartao_marca'], (string)$p['cartao_ultimos4'])) ?></span><?php endif; ?></td>
                     <td><?= e(formatar_preco($p['valor'])) ?><?php if ((float)$p['valor_reembolsado'] > 0): ?><br><span class="ajuda">reemb. <?= e(formatar_preco($p['valor_reembolsado'])) ?></span><?php endif; ?></td>
                     <td><span class="estado-etiqueta"><?= e(pagamento_estado_legivel($p['estado'])) ?></span></td>
                     <td class="ajuda"><?= e($p['staff_nome'] ?? ($p['gateway'] ? 'Gateway: '. $p['gateway'] : '—')) ?></td>

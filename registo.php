@@ -175,10 +175,11 @@ require __DIR__ . '/includes/cabecalho.php';
         </div>
 
         <div class="campo campo-checkbox">
-            <input type="checkbox" id="aceita_privacidade" name="aceita_privacidade" value="1"
+            <input type="checkbox" id="aceita_privacidade" name="aceita_privacidade" value="1" required
                    <?= isset($_POST['aceita_privacidade']) ? 'checked' : '' ?>>
             <label for="aceita_privacidade">
                 Li e aceito que a clínica trate os meus dados pessoais para gerir a minha conta e as minhas marcações.
+                <span class="obrigatorio" aria-hidden="true">*</span>
             </label>
             <?php if (isset($erros['aceita_privacidade'])): ?><p class="erro-campo"><?= e($erros['aceita_privacidade']) ?></p><?php endif; ?>
         </div>

@@ -3,6 +3,7 @@ declare(strict_types=1);
 require __DIR__ . '/includes/config.php';
 require __DIR__ . '/includes/marcacao.php';
 require __DIR__ . '/includes/pagamentos.php';
+require __DIR__ . '/includes/gateway.php';
 
 $u   = exigir_login();
 $pdo = db();
@@ -72,6 +73,9 @@ echo estilos_marcacao();
         <dt>Estado do pagamento</dt><dd><?= $ultimo ? e(rotulo('pagamento', $ultimo['estado'])) : '—' ?></dd>
         <?php if ($ultimo): ?>
             <dt>Método</dt><dd><?= e(rotulo('metodo', $ultimo['metodo'])) ?></dd>
+            <?php if (($ultimo['cartao_marca'] ?? '') !== '' && ($ultimo['cartao_ultimos4'] ?? '') !== ''): ?>
+                <dt>Cartão</dt><dd><?= e(pagamento_cartao_legivel((string)$ultimo['cartao_marca'], (string)$ultimo['cartao_ultimos4'])) ?></dd>
+            <?php endif; ?>
         <?php endif; ?>
     </dl>
     <?php if ($marc['estado'] === 'cancelada' && $marc['motivo_cancelamento']): ?>
@@ -123,9 +127,15 @@ echo estilos_marcacao();
         <p class="ajuda">Alguns preços são estimados e serão confirmados pelo dentista após a avaliação clínica.</p>
     <?php endif; ?>
     <?php if ($marc['estado'] === 'confirmada' && $porPagar > 0.0001): ?>
-        <p class="ajuda">O valor em falta paga-se na clínica, no dia da consulta.</p>
+        <p class="ajuda">Podes pagar online o valor em falta ou liquidá-lo na clínica, no dia da consulta.</p>
     <?php endif; ?>
 </section>
+
+<?php if ($marc['estado'] !== 'cancelada' && (int)$marc['tem_preco_estimado'] !== 1 && $porPagar > 0.0001
+          && (int)config_valor($pdo, 'pagamento_online_ativo', 0) === 1
+          && gateway_pagamento_disponivel($pdo)): ?>
+    <p><a class="botao" href="checkout.php?ref=<?= e(urlencode($marc['referencia'])) ?>">Pagar online</a></p>
+<?php endif; ?>
 
 <p>
     <a class="botao" href="area-pessoal.php">A minha área</a>

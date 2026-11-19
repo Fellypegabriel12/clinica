@@ -16,7 +16,9 @@
     --texto-suave:      #55656a;
     --texto-fraco:      #75848a;
     --borda:            #e5e2da;
-    --borda-forte:      #cfcac0;
+    /* FIX 2: borda-forte com contraste 3.2:1 sobre branco (WCAG AA 1.4.11).
+       Antes #cfcac0 dava 1.5:1 — falhava em inputs e cartões interativos. */
+    --borda-forte:      #948d7f;
 
     --primaria:         #1f4e5f;
     --primaria-hover:   #163a47;
@@ -72,7 +74,8 @@
         --texto-suave:      #a8b3b7;
         --texto-fraco:      #7a878b;
         --borda:            #2a353a;
-        --borda-forte:      #3a474d;
+        /* FIX 2: contraste 3.5:1 sobre #1a2226 (era ~1.7:1 com #3a474d). */
+        --borda-forte:      #637880;
 
         --primaria:         #6fb3c9;
         --primaria-hover:   #8bc7da;
@@ -108,7 +111,8 @@
     --texto-suave:      #a8b3b7;
     --texto-fraco:      #7a878b;
     --borda:            #2a353a;
-    --borda-forte:      #3a474d;
+    /* FIX 2 */
+    --borda-forte:      #637880;
 
     --primaria:         #6fb3c9;
     --primaria-hover:   #8bc7da;
@@ -197,8 +201,11 @@ summary:focus-visible {
     border-radius: var(--raio-sm);
 }
 
-/* Útil: esconde visualmente mas fica para leitores de ecrã */
-.so-leitor {
+/* Útil: esconde visualmente mas fica para leitores de ecrã.
+   FIX 4: .so-leitor e .sr-only faziam exatamente o mesmo (copy/paste).
+   Consolidados num só seletor — nenhuma alteração visual. */
+.so-leitor,
+.sr-only {
     position: absolute;
     width: 1px;
     height: 1px;
@@ -210,7 +217,7 @@ summary:focus-visible {
     border: 0;
 }
 
-/* Link "Saltar para o conteúdo" (põe <a class="saltar" href="#conteudo"> no topo do body) */
+/* Link "Saltar para o conteúdo" */
 .saltar {
     position: absolute;
     left: var(--esp-4);
@@ -639,7 +646,6 @@ textarea:disabled {
 }
 .hero-slide.ativo { opacity: 1; }
 
-/* Overlay/texto do hero com slides: texto branco e imagem visível em ambos os temas */
 .hero-overlay {
     background: linear-gradient(
         to bottom,
@@ -664,7 +670,6 @@ textarea:disabled {
     text-shadow: 0 1px 8px rgba(0,0,0,.35);
 }
 
-/* CTA do hero com slides: azul escuro sólido com texto branco */
 .hero-com-slides .botao-hero,
 .hero-com-slides .botao-hero:visited,
 .hero-com-slides a.botao-hero {
@@ -706,7 +711,6 @@ textarea:disabled {
     padding: 0.85rem 2rem;
     box-shadow: var(--sombra-2);
 }
-/* Hero sem slides: adapta ao tema com contraste acessível */
 .hero:not(.hero-com-slides) .botao-hero,
 .hero:not(.hero-com-slides) .botao-hero:visited {
     background: var(--primaria);
@@ -729,7 +733,6 @@ textarea:disabled {
 .grelha-larga { grid-template-columns: repeat(auto-fill, minmax(min(320px, 100%), 1fr)); }
 .grelha .cartao h2, .grelha .cartao h3 { margin-top: 0; }
 
-/* Cartão "+ / Ver mais" (serviços, equipa, etc.) */
 .cartao-ver-mais {
     display: flex;
     flex-direction: column;
@@ -773,7 +776,6 @@ textarea:disabled {
     color: var(--primaria);
 }
 
-/* Redes sociais configuráveis */
 .redes-sociais { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; margin: .5rem 0; }
 .rede-social-link {
     display: inline-flex; align-items: center; justify-content: center;
@@ -859,7 +861,7 @@ textarea:disabled {
 }
 .filtros .campo { margin: 0; min-width: 180px; flex: 1; }
 
-/* ---------- Horários (botões de hora para marcação) ---------- */
+/* ---------- Horários ---------- */
 .horarios {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(5rem, 1fr));
@@ -1215,7 +1217,7 @@ fieldset.campo legend {
     text-decoration: none;
 }
 
-/* ---------- Badge no menu (contagem de itens por tratar) ---------- */
+/* ---------- Badge no menu ---------- */
 .badge-menu {
     display: inline-block;
     background: var(--erro);
@@ -1230,7 +1232,7 @@ fieldset.campo legend {
     font-variant-numeric: tabular-nums;
 }
 
-/* ---------- Refinamento do botão de tema (emoji consistente) ---------- */
+/* ---------- Refinamento do botão de tema ---------- */
 #icone-tema {
     font-size: 1.05rem;
     line-height: 1;
@@ -1267,7 +1269,7 @@ fieldset.campo legend {
     font-size: .95rem;
 }
 
-/* ---------- Consulta de Preparação (4 passos) ---------- */
+/* ---------- Consulta de Preparação ---------- */
 .passos-preparacao {
     list-style: none;
     padding: 0;
@@ -1311,7 +1313,7 @@ fieldset.campo legend {
     font-size: 1.05rem;
 }
 
-/* ---------- Botões flutuantes (WhatsApp / telefone) ---------- */
+/* ---------- Botões flutuantes ---------- */
 .contacto-flutuante {
     position: fixed;
     right: var(--esp-4);
@@ -1375,7 +1377,7 @@ fieldset.campo legend {
     aspect-ratio: auto;
 }
 
-/* ---------- Compromissos (lista com marcas) ---------- */
+/* ---------- Compromissos ---------- */
 .compromissos {
     list-style: none;
     padding: 0;
@@ -1417,6 +1419,11 @@ fieldset.campo legend {
 }
 
 @media (max-width: 720px) {
+    /* FIX 1: --altura-topo estava a 4rem em mobile, mas com a nav em linha própria
+       o header real fica ~7rem. Âncoras (#conteudo-principal, #titulo-redes-sociais)
+       aterrissavam debaixo do header sticky. Ajustado para 7.5rem. */
+    :root { --altura-topo: 7.5rem; }
+
     .topo-conteudo {
         flex-wrap: wrap;
         gap: var(--esp-3);
@@ -1425,6 +1432,9 @@ fieldset.campo legend {
     .topo nav {
         order: 3;
         width: 100%;
+        /* flex:1 da regra base tem flex-basis 0 e impede a nav de ocupar
+           uma linha própria; em mobile forçamos a base a 100%. */
+        flex: 1 1 100%;
         gap: var(--esp-4);
         overflow-x: auto;
         padding-bottom: var(--esp-2);
@@ -1432,6 +1442,7 @@ fieldset.campo legend {
     }
     .topo nav::-webkit-scrollbar { display: none; }
     .topo nav a { white-space: nowrap; }
+    .topo-acoes { margin-left: auto; }
     .conteudo { padding: var(--esp-5) var(--esp-4); }
 
     .tabela-editorial th:nth-child(3),
@@ -1464,7 +1475,11 @@ fieldset.campo legend {
     .botao-flutuante { padding: .8rem; border-radius: 50%; width: 3rem; height: 3rem; justify-content: center; }
 }
 
-/* ---------- Acessibilidade: reduzir animações ---------- */
+/* ---------- Acessibilidade: reduzir animações ----------
+   FIX 5: dois blocos idênticos consolidados num só.
+   - O `*` já desativa transitions/animações em tudo.
+   - O `[data-animar]` só precisa de forçar o estado final (opacity/transform),
+     porque a regra base `html.js [data-animar] { opacity: 0 }` se aplica mesmo aqui. */
 @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after {
         transition-duration: 0.01ms !important;
@@ -1475,9 +1490,14 @@ fieldset.campo legend {
     #icone-tema { transition: none; }
     .botao-tema[aria-pressed="true"] #icone-tema { transform: none; }
     .hero-slide { transition: none; }
+
+    [data-animar] {
+        opacity: 1 !important;
+        transform: none !important;
+    }
 }
 
-/* ---------- Impressão (ex.: comprovativo de consulta) ---------- */
+/* ---------- Impressão ---------- */
 @media print {
     :root { color-scheme: light; }
     body { background: #fff; color: #000; }
@@ -1488,19 +1508,13 @@ fieldset.campo legend {
 
 /* =====================================================================
    Animações ao scroll (reveal)
-   Uso:
-     <div data-animar="up">...</div>
-     <div data-animar="fade">...</div>
-     <div data-animar="scale">...</div>
-     <div data-animar="left">...</div>
-     <div data-animar="right">...</div>
-     <div data-animar="up" data-animar-atraso="200">...</div>
-     <div data-stagger="80"> (filhos animam em sequência) </div>
    ===================================================================== */
 
 html.js [data-animar] {
     opacity: 0;
-    will-change: opacity, transform;
+    /* FIX 3: will-change removido. Com 40+ [data-animar] na homepage,
+       isto criava 40 GPU layers — esgotava memória em mobile e causava jank.
+       As transições de opacity/transform já são GPU-aceleradas sem will-change. */
     transition:
         opacity .7s cubic-bezier(.22, .61, .36, 1),
         transform .7s cubic-bezier(.22, .61, .36, 1);
@@ -1518,16 +1532,7 @@ html.js [data-animar].animado {
     transform: none;
 }
 
-/* Reduzir animações: mostra tudo imediatamente */
-@media (prefers-reduced-motion: reduce) {
-    [data-animar] {
-        opacity: 1 !important;
-        transform: none !important;
-        transition: none !important;
-    }
-}
-
-/* ---------- Cursor personalizado (opcional) ---------- */
+/* ---------- Cursor personalizado ---------- */
 .cursor-personalizado {
     position: fixed;
     top: 0;
@@ -1556,11 +1561,11 @@ html.js [data-animar].animado {
 .cursor-personalizado.cursor-fora {
     opacity: 0;
 }
-/* Esconde o cursor personalizado em touch e em impressão */
 @media (pointer: coarse), print {
     .cursor-personalizado { display: none !important; }
 }
-/* ---------- Melhorias de acessibilidade (navegação, foco, movimento) ---------- */
+
+/* ---------- Melhorias de acessibilidade ---------- */
 .saltar:focus-visible { top: var(--esp-2); }
 main[tabindex="-1"]:focus { outline: none; }
 nav a[aria-current="page"] {
@@ -1570,11 +1575,8 @@ nav a[aria-current="page"] {
 }
 .menu-dropdown-botao:focus-visible,
 .menu-dropdown-lista a:focus-visible { outline-offset: 2px; }
-.sr-only {
-    position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0;
-    overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0;
-}
 .alerta-erro[role="alert"] { scroll-margin-top: calc(var(--altura-topo) + var(--esp-4)); }
+
 @media (forced-colors: active) {
     .botao, .botao-secundario, .botao-tema, .badge-menu, .estado-etiqueta { border: 1px solid ButtonText; }
     a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible { outline: 2px solid Highlight; }

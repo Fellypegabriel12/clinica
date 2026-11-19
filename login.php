@@ -104,6 +104,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $pdo->prepare('INSERT INTO tentativas_login (email, ip, sucesso) VALUES (?, ?, 1)')
                 ->execute([$emailChave, $ip]);
 
+            // Volta à página que o visitante tentou abrir antes do login.
+            $destino = consumir_destino_apos_login();
+            if ($destino !== null) {
+                redirecionar($destino);
+            }
+
             if (in_array($u['papel'], ['admin', 'rececao'], true)) {
                 redirecionar('admin/index.php');
             }

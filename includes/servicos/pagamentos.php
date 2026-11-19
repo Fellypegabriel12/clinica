@@ -68,6 +68,42 @@ function pagamento_metodo_legivel(string $metodo, ?string $detalhe = null): stri
     return $b;
 }
 
+/**
+ * Guarda apenas a marca e os últimos 4 dígitos. Estes dados não permitem
+ * efetuar cobranças e não incluem número completo, validade ou CVC.
+ */
+function pagamento_guardar_cartao_mascarado(PDO $pdo, int $pagamentoId, string $marca, string $ultimos4): void
+{
+    $marca = mb_strtolower(trim($marca));
+    $ultimos4 = preg_replace('/\D+/', '', $ultimos4);
+    if ($pagamentoId <= 0 || $marca === '' || strlen((string)$ultimos4) !== 4) {
+        return;
+    }
+    $pdo->prepare('UPDATE pagamentos SET cartao_marca = ?, cartao_ultimos4 = ? WHERE id = ?')
+        ->execute([mb_substr($marca, 0, 20), (string)$ultimos4, $pagamentoId]);
+}
+
+function pagamento_cartao_legivel(?string $marca, ?string $ultimos4): string
+{
+    $marca = mb_strtolower(trim((string)$marca));
+    $ultimos4 = preg_replace('/\D+/', '', (string)$ultimos4);
+    if ($marca === '' || strlen((string)$ultimos4) !== 4) {
+        return 'Cartão';
+    }
+    $nomes = [
+        'visa' => 'Visa',
+        'mastercard' => 'Mastercard',
+        'amex' => 'American Express',
+        'discover' => 'Discover',
+        'diners' => 'Diners Club',
+        'jcb' => 'JCB',
+        'unionpay' => 'UnionPay',
+        'link' => 'Link',
+    ];
+    $nome = $nomes[$marca] ?? ucfirst($marca);
+    return $nome . ' •••• ' . $ultimos4;
+}
+
 function estado_financeiro_marcacao(PDO $pdo, int $marcacaoId): array
 {
     $st = $pdo->prepare('SELECT id, referencia, total_previsto, estado, utilizador_id FROM marcacoes WHERE id = ?');
@@ -280,6 +316,12 @@ function gateway_confirmar_pagamento(PDO $pdo, array $evt): array
         }
         $p = $st->fetch();
         if (!$p) { throw new RuntimeException('Pagamento alvo não encontrado.'); }
+        // Um evento atrasado (ex.: processing) nunca pode despromover um
+        // pagamento já confirmado. O estado "pago" é terminal para o evento.
+        if (($p['estado'] ?? '') === 'pago' && $estadoDestino !== 'pago') {
+            $pdo->commit();
+            return ['deduplicado' => true, 'pagamento_id' => (int)$p['id'], 'estado' => 'pago'];
+        }
         if ($p['marc_estado'] === 'cancelada' && $estadoDestino === 'pago') {
             $estadoDestino = 'em_processamento';
         }
@@ -306,6 +348,7 @@ function gateway_confirmar_pagamento(PDO $pdo, array $evt): array
         $params = [$estadoDestino, $gateway, $metodoGateway ?: null, $idempotency, $gateway, $referencia ?: ($p['referencia_transacao'] ?? null)];
         if ($estadoDestino === 'pago') { $sql .= ", pago_em=NOW(), data_pagamento=COALESCE(data_pagamento,NOW())"; }
         if ($estadoDestino === 'falhado') { $sql .= ", falhado_em=NOW()"; }
+        if ($estadoDestino === 'cancelado') { $sql .= ", cancelado_em=NOW()"; }
         $sql .= " WHERE id=?";
         $params[] = $p['id'];
         $pdo->prepare($sql)->execute($params);

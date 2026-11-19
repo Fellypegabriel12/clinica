@@ -108,6 +108,31 @@ try {
 
     $res = gateway_confirmar_pagamento($pdo, $evento);
 
+    // Guardar apenas marca/últimos 4 dígitos para apresentação no recibo.
+    // NUNCA guardar número completo, validade ou CVC. Se a consulta falhar,
+    // o pagamento continua confirmado e o webhook não deve falhar por isto.
+    if ($gateway instanceof GatewayStripe && ($res['estado'] ?? '') === 'pago') {
+        try {
+            $piId = trim((string)($evento['referencia_transacao'] ?? ''));
+            if ($piId !== '' && str_starts_with($piId, 'pi_')) {
+                $pi = $gateway->obterPaymentIntent($piId, true);
+                if (!empty($pi['ok']) && is_array($pi['payment_intent'] ?? null)) {
+                    $cartao = $gateway->dadosCartao($pi['payment_intent']);
+                    if ($cartao !== []) {
+                        pagamento_guardar_cartao_mascarado(
+                            $pdo,
+                            (int)($res['pagamento_id'] ?? 0),
+                            (string)$cartao['marca'],
+                            (string)$cartao['ultimos4']
+                        );
+                    }
+                }
+            }
+        } catch (Throwable $e) {
+            error_log('Webhook Stripe dados cartão: ' . $e->getMessage());
+        }
+    }
+
     // FIX (menor): registar em audit trail para rastreabilidade do pagamento.
     try {
         registar_admin('webhook_pagamento', 'pagamentos', (int)($res['pagamento_id'] ?? 0),

@@ -7,7 +7,7 @@
        .editorial, .faq, .testemunho, .passos-preparacao li, .tabela-editorial tr,
        .grelha > *, .grelha-larga > *, .grelha-info > *.
      - Os elementos com [data-animar] continuam a funcionar (override manual).
-     - Os elementos com [data-animar="off"] são ignorados.
+     - Os elementos com data-animar="off" são ignorados.
      - Os elementos com [data-stagger] animam os filhos em sequência.
    ===================================================================== */
 (function () {
@@ -39,20 +39,12 @@
         SELETORES_AUTO.forEach(function (sel) {
             document.querySelectorAll(sel).forEach(function (el) {
                 if (vistos.has(el)) { return; }
-                if (el.hasAttribute('data-animar')) { return; } // já tem override
-                if (el.hasAttribute('data-animar-off')) { return; }
+                if (el.hasAttribute('data-animar')) { return; } // já tem override (inclui "off")
                 vistos.add(el);
 
-                // Tipo de animação por contexto
                 var tipo = 'up';
-                if (el.matches('.grelha > .cartao, .grelha-larga > .cartao, .grelha-info > .cartao')) {
-                    tipo = 'up';
-                } else if (el.matches('.tabela-editorial > tbody > tr')) {
+                if (el.matches('.tabela-editorial > tbody > tr')) {
                     tipo = 'fade';
-                } else if (el.matches('.editorial')) {
-                    tipo = 'up';
-                } else if (el.matches('.passos-preparacao > li')) {
-                    tipo = 'up';
                 }
 
                 el.setAttribute('data-animar', tipo);
@@ -62,7 +54,7 @@
 
     /* ---------- 2. Reveal ao scroll ---------- */
     function iniciarReveal() {
-        var elementos = document.querySelectorAll('[data-animar]');
+        var elementos = document.querySelectorAll('[data-animar]:not([data-animar="off"])');
         if (!elementos.length) { return; }
 
         if (!('IntersectionObserver' in window) || reduzir) {
@@ -148,6 +140,12 @@
         if (slides.length <= 1) { return; }
         hero.dataset.slideshowInit = '1';
 
+        // FIX (bug): respeitar prefers-reduced-motion. Antes o slideshow continuava
+        // a rodar mesmo com "reduzir movimento" ativo — o CSS desativava a transição
+        // mas o JS mudava slides, causando flashes abruptos. Inconsistente com o
+        // fallback inline em includes/ui/hero.php, que já verificava esta preferência.
+        if (reduzir) { return; }
+
         var indice = 0;
         var intervaloMs = 5000;
         var temporizador = null;
@@ -158,9 +156,7 @@
             slides[indice].classList.add('ativo');
         }
 
-        function avancar() {
-            irPara(indice + 1);
-        }
+        function avancar() { irPara(indice + 1); }
 
         function iniciar() {
             if (temporizador !== null) { return; }
@@ -183,12 +179,12 @@
 
     /* ---------- 6. Arranque ---------- */
     document.addEventListener('DOMContentLoaded', function () {
-        prepararElementosAutomaticos();  // marca os elementos
-        iniciarStagger();                // aplica stagger
-        iniciarReveal();                 // observa e anima
-        iniciarCursor();                 // cursor (se ativo)
-        iniciarHeroSlideshow();          // hero: rotação automática
-        // Fallback: se algo falhar (observer/path/cache), nunca deixar conteúdo invisível
+        prepararElementosAutomaticos();
+        iniciarStagger();
+        iniciarReveal();
+        iniciarCursor();
+        iniciarHeroSlideshow();
+        // Fallback: se algo falhar, nunca deixar conteúdo invisível
         setTimeout(function () {
             document.querySelectorAll('[data-animar]:not(.animado)').forEach(function (el) {
                 el.classList.add('animado');

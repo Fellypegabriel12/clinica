@@ -81,6 +81,183 @@ final class GatewayStripe implements GatewayPagamento {
         return trim((string)config_valor_texto($this->pdo, 'stripe_webhook_secret', ''));
     }
 
+    /**
+     * Pedido mínimo à API Stripe (form-urlencoded), reutilizado pelo
+     * PaymentIntent. Não regista nem devolve a chave secreta.
+     */
+    private function pedidoApi(string $metodo, string $caminho, array $dados = [], array $cabecalhos = []): array
+    {
+        $sk = $this->chaveSecreta();
+        if ($sk === '') {
+            return ['ok' => false, 'http' => 0, 'json' => null, 'erro' => 'Chave secreta Stripe em falta.'];
+        }
+
+        $url = 'https://api.stripe.com/v1/' . ltrim($caminho, '/');
+        if ($metodo === 'GET' && $dados !== []) {
+            $url .= '?' . http_build_query($dados);
+        }
+
+        $ch = curl_init($url);
+        $opcoes = [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_TIMEOUT        => 30,
+            CURLOPT_SSL_VERIFYPEER => true,
+            CURLOPT_SSL_VERIFYHOST => 2,
+            CURLOPT_HTTPHEADER     => array_merge([
+                'Authorization: Bearer ' . $sk,
+                'Content-Type: application/x-www-form-urlencoded',
+            ], $cabecalhos),
+        ];
+        // Em Windows/WAMP o PHP pode não ter uma CAStore configurada. O bundle
+        // local (certs/cacert.pem) mantém a verificação TLS ativa sem desativar
+        // a validação. Em Linux/produção, se o ficheiro não existir, usa-se a
+        // configuração do sistema.
+        $caLocal = dirname(__DIR__, 2) . '/certs/cacert.pem';
+        if (is_file($caLocal)) {
+            $opcoes[CURLOPT_CAINFO] = $caLocal;
+        }
+        if ($metodo === 'POST') {
+            $opcoes[CURLOPT_POST] = true;
+            $opcoes[CURLOPT_POSTFIELDS] = http_build_query($dados);
+        } elseif ($metodo === 'DELETE') {
+            $opcoes[CURLOPT_CUSTOMREQUEST] = 'DELETE';
+            if ($dados !== []) { $opcoes[CURLOPT_POSTFIELDS] = http_build_query($dados); }
+        }
+        curl_setopt_array($ch, $opcoes);
+        $resp = curl_exec($ch);
+        $http = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $err  = curl_error($ch);
+        curl_close($ch);
+
+        if ($resp === false) {
+            return ['ok' => false, 'http' => 0, 'json' => null, 'erro' => 'Falha na ligação ao Stripe: ' . $err];
+        }
+        $json = json_decode((string)$resp, true);
+        if ($http >= 400 || !is_array($json)) {
+            $msg = is_array($json) && isset($json['error']['message'])
+                ? (string)$json['error']['message']
+                : 'Resposta inválida do Stripe.';
+            return ['ok' => false, 'http' => $http, 'json' => is_array($json) ? $json : null, 'erro' => $msg];
+        }
+        return ['ok' => true, 'http' => $http, 'json' => $json, 'erro' => ''];
+    }
+
+    /**
+     * Cria um PaymentIntent para o Payment Element embutido.
+     * O montante chega sempre calculado pelo servidor; este método não aceita
+     * valores do browser.
+     */
+    public function criarPaymentIntent(array $ctx): array
+    {
+        $valor = round((float)($ctx['valor'] ?? 0), 2);
+        if ($valor <= 0) {
+            return ['ok' => false, 'erro' => 'Valor de pagamento inválido.'];
+        }
+        $marcacaoId = (int)($ctx['marcacao_id'] ?? 0);
+        $pagamentoId = (int)($ctx['pagamento_id'] ?? 0);
+        $ref = trim((string)($ctx['referencia'] ?? ''));
+        if ($marcacaoId <= 0 || $pagamentoId <= 0 || $ref === '') {
+            return ['ok' => false, 'erro' => 'Contexto de pagamento incompleto.'];
+        }
+
+        $moeda = mb_strtolower(trim((string)config_valor_texto($this->pdo, 'moeda', 'EUR')));
+        if ($moeda === '') { $moeda = 'eur'; }
+        $amount = (int)round($valor * 100);
+
+        $params = [
+            'amount'                            => (string)$amount,
+            'currency'                          => $moeda,
+            'automatic_payment_methods[enabled]' => 'true',
+            'automatic_payment_methods[allow_redirects]' => 'never',
+            'description'                       => mb_substr('Marcação ' . $ref, 0, 200),
+            'metadata[marcacao_id]'             => (string)$marcacaoId,
+            'metadata[pagamento_id]'            => (string)$pagamentoId,
+            'metadata[referencia]'              => $ref,
+            'metadata[tipo]'                    => (string)($ctx['tipo'] ?? 'total'),
+        ];
+        $email = trim((string)($ctx['email'] ?? ''));
+        if ($email !== '' && filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            $params['receipt_email'] = $email;
+        }
+
+        $idem = 'stripe:pi:' . $pagamentoId . ':' . $amount . ':'
+              . substr(hash('sha256', http_build_query($params)), 0, 12);
+        $r = $this->pedidoApi('POST', 'payment_intents', $params, [
+            'Idempotency-Key: ' . $idem,
+        ]);
+        if (!$r['ok'] || empty($r['json']['id']) || empty($r['json']['client_secret'])) {
+            return ['ok' => false, 'erro' => 'Stripe: ' . ($r['erro'] ?: 'não foi possível criar a intenção de pagamento.')];
+        }
+        $pi = $r['json'];
+        return [
+            'ok'                => true,
+            'payment_intent_id' => (string)$pi['id'],
+            'client_secret'     => (string)$pi['client_secret'],
+            'status'            => (string)($pi['status'] ?? ''),
+            'amount'            => (int)($pi['amount'] ?? $amount),
+            'currency'          => (string)($pi['currency'] ?? $moeda),
+        ];
+    }
+
+    /**
+     * Obtém um PaymentIntent. Por omissão expande latest_charge para permitir
+     * ler marca/últimos 4 dígitos do cartão sem guardar dados sensíveis.
+     */
+    public function obterPaymentIntent(string $id, bool $expandirCobranca = true): array
+    {
+        $id = trim($id);
+        if (!preg_match('/^pi_[A-Za-z0-9_]+$/', $id)) {
+            return ['ok' => false, 'erro' => 'Identificador de PaymentIntent inválido.'];
+        }
+        $dados = $expandirCobranca ? ['expand[0]' => 'latest_charge'] : [];
+        $r = $this->pedidoApi('GET', 'payment_intents/' . rawurlencode($id), $dados);
+        if (!$r['ok'] || !is_array($r['json'])) {
+            return ['ok' => false, 'erro' => 'Stripe: ' . ($r['erro'] ?: 'PaymentIntent indisponível.')];
+        }
+        return ['ok' => true, 'payment_intent' => $r['json']];
+    }
+
+    public function cancelarPaymentIntent(string $id): array
+    {
+        $id = trim($id);
+        if (!preg_match('/^pi_[A-Za-z0-9_]+$/', $id)) {
+            return ['ok' => false, 'erro' => 'Identificador de PaymentIntent inválido.'];
+        }
+        $r = $this->pedidoApi('POST', 'payment_intents/' . rawurlencode($id) . '/cancel');
+        if (!$r['ok'] || !is_array($r['json'])) {
+            return ['ok' => false, 'erro' => 'Stripe: ' . ($r['erro'] ?: 'não foi possível cancelar.')];
+        }
+        return ['ok' => true, 'payment_intent' => $r['json']];
+    }
+
+    /**
+     * Extrai apenas marca e últimos 4 dígitos. Nunca devolve número completo,
+     * validade ou CVC.
+     */
+    public function dadosCartao(array $pi): array
+    {
+        $charge = $pi['latest_charge'] ?? null;
+        if (is_string($charge) && $charge !== '') {
+            return [];
+        }
+        if (!is_array($charge)) {
+            $charge = $pi['charges']['data'][0] ?? null;
+        }
+        if (!is_array($charge)) {
+            return [];
+        }
+        $card = $charge['payment_method_details']['card'] ?? null;
+        if (!is_array($card)) {
+            return [];
+        }
+        $marca = strtolower(trim((string)($card['brand'] ?? '')));
+        $ultimos4 = preg_replace('/\D+/', '', (string)($card['last4'] ?? ''));
+        if ($marca === '' || strlen((string)$ultimos4) !== 4) {
+            return [];
+        }
+        return ['marca' => mb_substr($marca, 0, 20), 'ultimos4' => (string)$ultimos4];
+    }
+
     public function iniciarPagamento(array $ctx): array {
         $sk = $this->chaveSecreta();
         if ($sk === '') {
@@ -229,8 +406,14 @@ final class GatewayStripe implements GatewayPagamento {
         } elseif ($type === 'payment_intent.succeeded') {
             $confirmado = true; $estado = 'pago';
             $txRef = (string)($obj['id'] ?? $event['id']);
+        } elseif ($type === 'payment_intent.processing') {
+            $confirmado = false; $estado = 'em_processamento';
+            $txRef = (string)($obj['id'] ?? $event['id']);
         } elseif ($type === 'payment_intent.payment_failed') {
             $confirmado = false; $estado = 'falhado';
+            $txRef = (string)($obj['id'] ?? $event['id']);
+        } elseif ($type === 'payment_intent.canceled') {
+            $confirmado = false; $estado = 'cancelado';
             $txRef = (string)($obj['id'] ?? $event['id']);
         } elseif ($type === 'charge.refunded') {
             return ['valido' => true, 'evento' => [
@@ -321,6 +504,11 @@ function gateway_stripe_configurado(PDO $pdo): bool {
     if (is_string($sk) && trim($sk) !== '') { return true; }
     return trim((string)config_valor_texto($pdo, 'stripe_secret_key', '')) !== '';
 }
+function gateway_stripe_publishable_key(PDO $pdo): string {
+    $env = getenv('STRIPE_PUBLISHABLE_KEY');
+    if (is_string($env) && trim($env) !== '') { return trim($env); }
+    return trim((string)config_valor_texto($pdo, 'stripe_publishable_key', ''));
+}
 function gateway_stripe_webhook_configurado(PDO $pdo): bool {
     $s = getenv('STRIPE_WEBHOOK_SECRET');
     if (is_string($s) && trim($s) !== '') { return true; }
@@ -337,5 +525,6 @@ function gateway_pagamento_disponivel(PDO $pdo): bool
 {
     return gateway_obter($pdo) instanceof GatewayStripe
         && gateway_stripe_configurado($pdo)
+        && gateway_stripe_publishable_key($pdo) !== ''
         && gateway_stripe_webhook_configurado($pdo);
 }

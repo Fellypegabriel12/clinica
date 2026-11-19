@@ -42,6 +42,47 @@ if ($__doc !== '' && stripos($__raiz, $__doc) === 0) {
     define('BASE_URL', '/');
 }
 
+/**
+ * Carrega segredos locais de um ficheiro .env na raiz do projeto.
+ * O ficheiro está bloqueado pelo .htaccess e ignorado pelo Git. Variáveis
+ * já definidas no ambiente têm precedência (produção deve usar o ambiente).
+ */
+function carregar_env_local(): void
+{
+    static $carregado = false;
+    if ($carregado) { return; }
+    $carregado = true;
+
+    $ficheiro = dirname(__DIR__, 2);
+    $ficheiro = rtrim(str_replace('\\', '/', (string)$ficheiro), '/') . '/.env';
+    if (!is_file($ficheiro) || !is_readable($ficheiro)) { return; }
+
+    $linhas = @file($ficheiro, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+    if (!is_array($linhas)) { return; }
+
+    foreach ($linhas as $linha) {
+        $linha = trim($linha);
+        if ($linha === '' || $linha[0] === '#') { continue; }
+        $pos = strpos($linha, '=');
+        if ($pos === false) { continue; }
+        $chave = trim(substr($linha, 0, $pos));
+        $valor = trim(substr($linha, $pos + 1));
+        if (!preg_match('/^[A-Z0-9_]+$/', $chave)) { continue; }
+        if (strlen($valor) >= 2) {
+            $primeiro = $valor[0];
+            $ultimo   = substr($valor, -1);
+            if (($primeiro === '"' && $ultimo === '"') || ($primeiro === "'" && $ultimo === "'")) {
+                $valor = substr($valor, 1, -1);
+            }
+        }
+        $atual = getenv($chave);
+        if ($atual !== false && trim((string)$atual) !== '') { continue; }
+        putenv($chave . '=' . $valor);
+        $_ENV[$chave] = $valor;
+    }
+}
+carregar_env_local();
+
 if (MODO_DEV) {
     ini_set('display_errors', '1');
     error_reporting(E_ALL);
@@ -69,14 +110,32 @@ if (!headers_sent()) {
     header('X-Content-Type-Options: nosniff');
     header('X-Frame-Options: SAMEORIGIN');
     header('Referrer-Policy: strict-origin-when-cross-origin');
-    header('Permissions-Policy: geolocation=(), microphone=(), camera=()');
-    $csp = "default-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'; "
-         . "img-src 'self' data: blob: https:; "
-         . "font-src 'self' https://fonts.gstatic.com data:; "
-         . "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
-         . "script-src 'self' 'unsafe-inline'; "
-         . "connect-src 'self'; "
-         . "frame-src 'self' https://www.google.com https://maps.google.com https://*.google.com;";
+
+    // O Payment Element da Stripe só é usado no checkout. As restantes páginas
+    // mantêm a CSP restritiva, sem autorizar scripts/frames de terceiros.
+    $__paginaAtual = basename((string)parse_url((string)($_SERVER['REQUEST_URI'] ?? ''), PHP_URL_PATH));
+    $__checkoutStripe = ($__paginaAtual === 'checkout.php');
+
+    if ($__checkoutStripe) {
+        header('Permissions-Policy: geolocation=(), microphone=(), camera=(), payment=(self "https://js.stripe.com")');
+        $csp = "default-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'; "
+             . "img-src 'self' data: blob: https:; "
+             . "font-src 'self' https://fonts.gstatic.com data:; "
+             . "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+             . "script-src 'self' 'unsafe-inline' https://js.stripe.com; "
+             . "connect-src 'self' https://api.stripe.com https://m.stripe.network https://m.stripe.com; "
+             . "frame-src 'self' https://js.stripe.com https://hooks.stripe.com https://*.stripe.com https://m.stripe.network https://m.stripe.com https://www.google.com https://maps.google.com https://*.google.com;";
+    } else {
+        header('Permissions-Policy: geolocation=(), microphone=(), camera=()');
+        $csp = "default-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'; "
+             . "img-src 'self' data: blob: https:; "
+             . "font-src 'self' https://fonts.gstatic.com data:; "
+             . "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+             . "script-src 'self' 'unsafe-inline'; "
+             . "connect-src 'self'; "
+             . "frame-src 'self' https://www.google.com https://maps.google.com https://*.google.com;";
+    }
+    unset($__paginaAtual, $__checkoutStripe);
     header('Content-Security-Policy: ' . $csp);
     if (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') {
         header('Strict-Transport-Security: max-age=31536000; includeSubDomains');
@@ -198,10 +257,64 @@ function utilizador_atual(): ?array
     return $_SESSION['utilizador'] ?? null;
 }
 
+/**
+ * Guarda a página protegida que o visitante tentou abrir, para o devolver
+ * lá depois do login (ex.: escolher dentista -> login -> continuar marcação).
+ * Só aceita GET, caminhos .php internos e query strings simples.
+ */
+function guardar_destino_apos_login(): void
+{
+    if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'GET' || !empty($_SESSION['url_apos_login'])) {
+        return;
+    }
+
+    $uri     = (string)($_SERVER['REQUEST_URI'] ?? '');
+    $caminho = parse_url($uri, PHP_URL_PATH);
+    $query   = parse_url($uri, PHP_URL_QUERY);
+
+    if (!is_string($caminho) || $caminho === '' || str_contains($caminho, '..')) {
+        return;
+    }
+
+    $base = rtrim(BASE_URL, '/');
+    if ($base !== '' && str_starts_with($caminho, $base . '/')) {
+        $caminho = substr($caminho, strlen($base) + 1);
+    } elseif ($base === '') {
+        $caminho = ltrim($caminho, '/');
+    } else {
+        return;
+    }
+
+    if (!preg_match('~^[A-Za-z0-9_\-/]+\.php$~', $caminho)) {
+        return;
+    }
+    if (in_array($caminho, ['login.php', 'logout.php', 'registo.php'], true)) {
+        return;
+    }
+
+    $destino = $caminho;
+    if (is_string($query) && $query !== '') {
+        if (!preg_match('~^[A-Za-z0-9_\-=&%.+]+$~', $query)) {
+            return;
+        }
+        $destino .= '?' . $query;
+    }
+
+    $_SESSION['url_apos_login'] = $destino;
+}
+
+function consumir_destino_apos_login(): ?string
+{
+    $destino = $_SESSION['url_apos_login'] ?? null;
+    unset($_SESSION['url_apos_login']);
+    return is_string($destino) && $destino !== '' ? $destino : null;
+}
+
 function exigir_login(array $papeisPermitidos = []): array
 {
     $u = utilizador_atual();
     if ($u === null) {
+        guardar_destino_apos_login();
         flash_definir('info', 'Inicia sessão para continuares.');
         redirecionar('login.php');
     }
