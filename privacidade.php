@@ -7,9 +7,27 @@ $tituloPagina = conteudo('privacidade_titulo', 'Política de Privacidade');
 require __DIR__ . '/includes/cabecalho.php';
 ?>
 
-<h1><?= e(conteudo('privacidade_titulo', 'Política de Privacidade')) ?></h1>
-<?php $__ci=trim(conteudo('privacidade_intro','')); if($__ci!==''): ?><p><?= nl2br(e($__ci)) ?></p><?php endif; ?>
-<p class="ajuda">Em conformidade com o Regulamento (UE) 2016/679 (RGPD) e a Lei n.º 58/2019.</p>
+<section class="interior-hero">
+    <div class="interior-hero-top">
+        <div class="interior-hero-kicker">
+            <span class="kicker-num">Legal</span>
+            <span class="kicker-line" aria-hidden="true"></span>
+            <span>RGPD · Lei 58/2019</span>
+        </div>
+        <span class="interior-hero-aside">Última atualização: 2026</span>
+    </div>
+    <h1><?= e(conteudo('privacidade_titulo', 'Política de Privacidade')) ?><span class="ponto">.</span></h1>
+    <div class="interior-hero-bottom">
+        <p>
+            Em conformidade com o Regulamento (UE) 2016/679 (RGPD) e a Lei n.º 58/2019.
+        </p>
+        <span>Lê com atenção ↓</span>
+    </div>
+</section>
+
+<?php $__ci = trim(conteudo('privacidade_intro', '')); if ($__ci !== ''): ?>
+    <p><?= nl2br(e($__ci)) ?></p>
+<?php endif; ?>
 
 <section class="cartao seccao">
     <h2>1. Responsável pelo tratamento</h2>

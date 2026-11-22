@@ -61,7 +61,9 @@
     });
 
     const paymentElement = elements.create('payment', {
-        layout: { type: 'accordion', defaultCollapsed: false },
+        layout: { type: 'accordion', defaultCollapsed: false, visibleAccordionItemsCount: 1 },
+        paymentMethodOrder: ['card'],
+        wallets: { link: 'never', applePay: 'never', googlePay: 'never' },
         fields: {
             billingDetails: {
                 name: 'never',

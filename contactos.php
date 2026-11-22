@@ -14,8 +14,6 @@ foreach ($linhas as $h) {
     $porDia[(int)$h['dia_semana']][] = substr($h['hora_inicio'], 0, 5) . ' – ' . substr($h['hora_fim'], 0, 5);
 }
 
-// BUGFIX: a) a morada na página vinha da CONSTANTE em vez de clinica_dado
-//         b) o mapa fallback mostrava Portimão em vez da morada configurada.
 $moradaClinica = clinica_dado($pdo, 'clinica_morada', CLINICA_MORADA);
 $mapaEmbed = config_valor_texto(
     $pdo,
@@ -82,9 +80,26 @@ $tituloPagina = 'Contactos';
 require __DIR__ . '/includes/cabecalho.php';
 ?>
 
-<h1 data-animar="up"><?= e(conteudo('contactos_titulo', 'Contactos')) ?></h1>
+<section class="interior-hero">
+    <div class="interior-hero-top">
+        <div class="interior-hero-kicker">
+            <span class="kicker-num">05 / 2026</span>
+            <span class="kicker-line" aria-hidden="true"></span>
+            <span>Contactos</span>
+        </div>
+        <span class="interior-hero-aside">Estamos por aqui</span>
+    </div>
+    <h1><?= e(conteudo('contactos_titulo', 'Fala connosco')) ?><span class="ponto">.</span></h1>
+    <div class="interior-hero-bottom">
+        <p>
+            Para marcações, usa a área de marcação online. Para outras questões,
+            envia-nos uma mensagem ou liga diretamente.
+        </p>
+        <span>Escreve-nos ↓</span>
+    </div>
+</section>
 
-<section class="seccao grelha-info" data-stagger="100">
+<section class="grelha-info" data-stagger="100">
     <div class="cartao" data-animar="up">
         <h2>Onde estamos</h2>
         <p><?= e($moradaClinica) ?></p>

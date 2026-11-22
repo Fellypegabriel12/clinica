@@ -316,6 +316,22 @@ function gateway_confirmar_pagamento(PDO $pdo, array $evt): array
         }
         $p = $st->fetch();
         if (!$p) { throw new RuntimeException('Pagamento alvo não encontrado.'); }
+
+        // O evento tem de apontar para a mesma marcação e, nos eventos de
+        // PaymentIntent, para a mesma transação registada. Sem isto, um evento
+        // assinado com metadados trocados poderia confirmar outro pagamento.
+        if ($marcacaoId > 0 && (int)$p['marcacao_id'] !== $marcacaoId) {
+            throw new GatewayEventoInvalidoException('Pagamento rejeitado: a marcação do evento não corresponde ao pagamento.');
+        }
+        $tipoEvento = (string)($evt['tipo_evento'] ?? '');
+        $refGuardada = trim((string)($p['referencia_transacao'] ?? ''));
+        if (str_starts_with($tipoEvento, 'payment_intent.')
+            && $referencia !== ''
+            && $refGuardada !== ''
+            && $referencia !== $refGuardada) {
+            throw new GatewayEventoInvalidoException('Pagamento rejeitado: a transação do evento não corresponde ao pagamento.');
+        }
+
         // Um evento atrasado (ex.: processing) nunca pode despromover um
         // pagamento já confirmado. O estado "pago" é terminal para o evento.
         if (($p['estado'] ?? '') === 'pago' && $estadoDestino !== 'pago') {

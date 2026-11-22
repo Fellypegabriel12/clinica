@@ -27,7 +27,7 @@ body {
 a { color: inherit; }
 
 .checkout-frame {
-    width: min(100%, 820px);
+    width: min(100%, 900px);
     min-height: 620px;
     background: #fff;
     border: 1px solid #e0e4e9;
@@ -375,4 +375,59 @@ a { color: inherit; }
     .confirmation-side { border-left: 0; border-top: 1px solid #f0f1f3; min-height: 380px; padding: 34px 24px; }
     .domain { right: 8px; }
     .address { min-width: 160px; max-width: 52vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+}
+
+/* =====================================================================
+   Botões de ação na confirmação (estado falhado)
+   Usa os tokens do checkout (isolado do tema global).
+   ===================================================================== */
+
+.confirmation-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    justify-content: center;
+    margin-top: 8px;
+}
+
+.confirmation-actions .btn-retry,
+.confirmation-actions .btn-secondary {
+    display: inline-block;
+    padding: 10px 16px;
+    border-radius: 5px;
+    font-family: inherit;
+    font-size: 12px;
+    font-weight: 600;
+    text-decoration: none;
+    transition: background .15s ease, border-color .15s ease, color .15s ease;
+    white-space: nowrap;
+}
+.confirmation-actions .btn-retry {
+    background: var(--checkout-azul);
+    color: #fff;
+    border: 1px solid var(--checkout-azul);
+}
+.confirmation-actions .btn-retry:hover,
+.confirmation-actions .btn-retry:focus-visible {
+    background: var(--checkout-azul-escuro);
+    border-color: var(--checkout-azul-escuro);
+    color: #fff;
+    text-decoration: none;
+}
+.confirmation-actions .btn-retry:focus-visible {
+    outline: 3px solid #0874d155;
+    outline-offset: 2px;
+}
+
+.confirmation-actions .btn-secondary {
+    background: transparent;
+    color: var(--checkout-texto);
+    border: 1px solid var(--checkout-borda);
+}
+.confirmation-actions .btn-secondary:hover,
+.confirmation-actions .btn-secondary:focus-visible {
+    background: var(--checkout-fundo);
+    border-color: var(--checkout-suave);
+    color: var(--checkout-texto);
+    text-decoration: none;
 }

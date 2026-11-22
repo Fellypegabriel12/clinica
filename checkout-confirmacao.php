@@ -189,12 +189,12 @@ $podeRepetir = $vista === 'falhado' && !empty($resumo['pode_pagar']);
                     <p class="confirmation-note">
                         Não foi efetuada qualquer cobrança.<?= $podeRepetir ? ' Podes tentar novamente com outro cartão.' : '' ?>
                     </p>
-                    <p>
+                    <div class="confirmation-actions">
                         <?php if ($podeRepetir): ?>
-                            <a class="botao botao-secundario" href="checkout.php?ref=<?= e(urlencode((string)$marcacao['referencia'])) ?>">Tentar novamente</a>
+                            <a class="btn-retry" href="checkout.php?ref=<?= e(urlencode((string)$marcacao['referencia'])) ?>">Tentar novamente</a>
                         <?php endif; ?>
-                        <a class="botao botao-secundario" href="marcar-confirmacao.php?ref=<?= e(urlencode((string)$marcacao['referencia'])) ?>">Ver marcação</a>
-                    </p>
+                        <a class="btn-secondary" href="marcar-confirmacao.php?ref=<?= e(urlencode((string)$marcacao['referencia'])) ?>">Ver marcação</a>
+                    </div>
                 <?php else: ?>
                     <p class="confirmation-note" id="estado-nota">
                         Estamos a aguardar a confirmação segura da Stripe. Esta página atualiza automaticamente.

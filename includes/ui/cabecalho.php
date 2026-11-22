@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/../core/conteudo.php';
+require_once __DIR__ . '/../servicos/admin.php';
 $__pdoCab = function_exists('db') ? db() : null;
 $__nomeClinica = $__pdoCab && function_exists('clinica_dado') ? clinica_dado($__pdoCab, 'clinica_nome', CLINICA_NOME) : CLINICA_NOME;
 $__logoClinica = $__pdoCab && function_exists('config_valor_texto') ? trim(config_valor_texto($__pdoCab, 'clinica_logotipo_url', '')) : '';
@@ -20,6 +21,19 @@ $utilizador   = utilizador_atual();
 $flash        = flash_obter();
 $temaConta    = $utilizador['tema'] ?? '';
 $paginaAtual  = basename((string)($_SERVER['SCRIPT_NAME'] ?? ''));
+$__emAdmin    = str_contains(str_replace('\\', '/', (string)($_SERVER['SCRIPT_NAME'] ?? '')), '/admin/');
+
+// Garante que o badge de pendências está disponível em todas as páginas da
+// consola, mesmo naquelas que não carregam gestao.php diretamente.
+if ($__emAdmin && $utilizador && in_array($utilizador['papel'], ['admin', 'rececao'], true)) {
+    require_once __DIR__ . '/../servicos/gestao.php';
+}
+
+// CSS condicional (injetado pelo wrapper includes/cabecalho.php).
+$css_extra = $css_extra ?? [];
+if (!is_array($css_extra)) {
+    $css_extra = [];
+}
 ?>
 <!DOCTYPE html>
 <html lang="pt-PT" data-tema-conta="<?= e($temaConta) ?>" data-logado="<?= $utilizador ? '1' : '0' ?>">
@@ -71,6 +85,14 @@ $paginaAtual  = basename((string)($_SERVER['SCRIPT_NAME'] ?? ''));
     </script>
 
     <link rel="stylesheet" href="css/estilo.css">
+    <?php if ($css_extra): ?>
+        <?php foreach ($css_extra as $__cssExtra):
+            $__cssExtra = trim((string)$__cssExtra);
+            if ($__cssExtra === '') { continue; }
+        ?>
+    <link rel="stylesheet" href="<?= e($__cssExtra) ?>">
+        <?php endforeach; ?>
+    <?php endif; ?>
     <script src="js/tema.js" defer></script>
 </head>
 <body data-cursor>
@@ -103,17 +125,34 @@ $paginaAtual  = basename((string)($_SERVER['SCRIPT_NAME'] ?? ''));
                 </div>
             </div>
 
-            <?php if ($utilizador && in_array($utilizador['papel'], ['admin', 'rececao'], true)): ?>
-                <a href="admin/index.php">
-                    <?= e(conteudo('nav_admin', 'Administração')) ?>
-                    <?php
-                    if (function_exists('badge_admin')) {
-                        $nBadge = badge_admin(db(), $utilizador);
-                        if ($nBadge > 0) {
-                            echo '<span class="badge-menu">' . $nBadge . '</span>';
+            <?php if ($utilizador && in_array($utilizador['papel'], ['admin', 'rececao'], true)):
+                $__badgeTotal = 0;
+                $__badgeDetalhe = [];
+                if (function_exists('pendencias_admin')) {
+                    foreach (pendencias_admin(db(), $utilizador) as $__pendencia) {
+                        $__valor = (int)($__pendencia['valor'] ?? 0);
+                        $__badgeTotal += $__valor;
+                        if ($__valor > 0) {
+                            $__badgeDetalhe[] = $__valor . ' ' . mb_strtolower((string)($__pendencia['rotulo'] ?? ''));
                         }
                     }
-                    ?>
+                } elseif (function_exists('badge_admin')) {
+                    $__badgeTotal = badge_admin(db(), $utilizador);
+                }
+                $__badgeTexto = implode(' · ', $__badgeDetalhe);
+                $__badgeAria = 'Administração';
+                if ($__badgeTotal > 0) {
+                    $__badgeAria .= ', ' . $__badgeTotal . ' ' . ($__badgeTotal === 1 ? 'pendência' : 'pendências');
+                    if ($__badgeTexto !== '') {
+                        $__badgeAria .= ': ' . $__badgeTexto;
+                    }
+                }
+            ?>
+                <a href="admin/index.php" aria-label="<?= e($__badgeAria) ?>">
+                    <?= e(conteudo('nav_admin', 'Administração')) ?>
+                    <?php if ($__badgeTotal > 0): ?>
+                        <span class="badge-menu" aria-hidden="true" title="<?= e($__badgeTexto) ?>"><?= $__badgeTotal ?></span>
+                    <?php endif; ?>
                 </a>
             <?php endif; ?>
             
@@ -141,6 +180,9 @@ $paginaAtual  = basename((string)($_SERVER['SCRIPT_NAME'] ?? ''));
         </div>
     </div>
 </header>
+<?php if ($__emAdmin && $utilizador && in_array($utilizador['papel'], ['admin', 'rececao'], true)): ?>
+    <?= admin_subnav($paginaAtual, $utilizador) ?>
+<?php endif; ?>
 <main id="conteudo-principal" class="conteudo" tabindex="-1">
 <?php if ($flash): $flashRole = ($flash['tipo'] ?? '') === 'erro' ? 'alert' : 'status'; ?>
     <div class="alerta alerta-<?= e($flash['tipo']) ?>" role="<?= e($flashRole) ?>"<?= $flashRole === 'status' ? ' aria-live="polite"' : '' ?>><?= e($flash['mensagem']) ?></div>

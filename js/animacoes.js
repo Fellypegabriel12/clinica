@@ -1,5 +1,5 @@
 /* =====================================================================
-   animacoes.js - animações ao scroll (reveal) + stagger + cursor
+   animacoes.js - animações ao scroll (reveal) + stagger + cursor + magnetic
    Sem dependências. Respeita prefers-reduced-motion.
 
    Modo automático:
@@ -9,6 +9,7 @@
      - Os elementos com [data-animar] continuam a funcionar (override manual).
      - Os elementos com data-animar="off" são ignorados.
      - Os elementos com [data-stagger] animam os filhos em sequência.
+     - Botões com [data-magnetic] ou .botao-hero têm efeito magnético em desktop.
    ===================================================================== */
 (function () {
     'use strict';
@@ -39,7 +40,7 @@
         SELETORES_AUTO.forEach(function (sel) {
             document.querySelectorAll(sel).forEach(function (el) {
                 if (vistos.has(el)) { return; }
-                if (el.hasAttribute('data-animar')) { return; } // já tem override (inclui "off")
+                if (el.hasAttribute('data-animar')) { return; }
                 vistos.add(el);
 
                 var tipo = 'up';
@@ -132,7 +133,33 @@
         document.addEventListener('mouseenter', function () { cursor.classList.remove('cursor-fora'); });
     }
 
-    /* ---------- 5. Slideshow do hero (automático, suave) ---------- */
+    /* ---------- 5. Efeito magnético em CTAs (desktop only) ---------- */
+    function iniciarMagnetico() {
+        if (reduzir) { return; }
+        if (!window.matchMedia || !matchMedia('(pointer: fine)').matches) { return; }
+
+        document.querySelectorAll('[data-magnetic], .botao-hero').forEach(function (btn) {
+            if (btn.dataset.magneticInit === '1') { return; }
+            btn.dataset.magneticInit = '1';
+
+            btn.addEventListener('pointermove', function (e) {
+                var r = btn.getBoundingClientRect();
+                var dx = (e.clientX - r.left - r.width / 2) * 0.08;
+                var dy = (e.clientY - r.top - r.height / 2) * 0.12;
+                btn.style.transform = 'translate(' + dx + 'px, ' + dy + 'px)';
+            });
+
+            btn.addEventListener('pointerleave', function () {
+                btn.style.transform = '';
+            });
+
+            btn.addEventListener('blur', function () {
+                btn.style.transform = '';
+            });
+        });
+    }
+
+    /* ---------- 6. Slideshow do hero (automático, suave) ---------- */
     function iniciarHeroSlideshow() {
         var hero = document.querySelector('.hero-com-slides');
         if (!hero || hero.dataset.slideshowInit === '1') { return; }
@@ -140,10 +167,6 @@
         if (slides.length <= 1) { return; }
         hero.dataset.slideshowInit = '1';
 
-        // FIX (bug): respeitar prefers-reduced-motion. Antes o slideshow continuava
-        // a rodar mesmo com "reduzir movimento" ativo — o CSS desativava a transição
-        // mas o JS mudava slides, causando flashes abruptos. Inconsistente com o
-        // fallback inline em includes/ui/hero.php, que já verificava esta preferência.
         if (reduzir) { return; }
 
         var indice = 0;
@@ -177,13 +200,47 @@
         iniciar();
     }
 
-    /* ---------- 6. Arranque ---------- */
+    /* ---------- 7. Navegação mobile: mostrar o link da página atual ----------
+       Em ecrãs estreitos a nav é uma faixa horizontal com scroll. Sem isto,
+       o link ativo podia ficar cortado fora da área visível. */
+    function manterLinkAtivoVisivel() {
+        var nav = document.querySelector('.topo nav');
+        var ativo = nav ? nav.querySelector('a[aria-current="page"]') : null;
+        if (!nav || !ativo || nav.scrollWidth <= nav.clientWidth) { return; }
+
+        var filhos = Array.prototype.slice.call(nav.children).filter(function (el) {
+            return el.offsetWidth > 0;
+        });
+        var indice = filhos.indexOf(ativo);
+        if (indice < 0) { return; }
+
+        var gap = parseFloat(getComputedStyle(nav).columnGap) || 0;
+        var larguraNav = nav.clientWidth;
+        var inicio = indice;
+        var total = 0;
+
+        for (var i = indice; i >= 0; i--) {
+            var largura = filhos[i].getBoundingClientRect().width;
+            var necessario = largura + (i === indice ? 0 : gap);
+            if (total + necessario > larguraNav) { break; }
+            total += necessario;
+            inicio = i;
+        }
+
+        var navLeft = nav.getBoundingClientRect().left;
+        var alvo = filhos[inicio].getBoundingClientRect().left - navLeft;
+        nav.scrollLeft = Math.max(0, nav.scrollLeft + alvo);
+    }
+
+    /* ---------- 8. Arranque ---------- */
     document.addEventListener('DOMContentLoaded', function () {
         prepararElementosAutomaticos();
         iniciarStagger();
         iniciarReveal();
         iniciarCursor();
+        iniciarMagnetico();
         iniciarHeroSlideshow();
+        manterLinkAtivoVisivel();
         // Fallback: se algo falhar, nunca deixar conteúdo invisível
         setTimeout(function () {
             document.querySelectorAll('[data-animar]:not(.animado)').forEach(function (el) {
