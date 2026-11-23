@@ -5,10 +5,12 @@ require __DIR__ . '/../includes/config.php';
 require __DIR__ . '/../includes/servicos/importacao.php';
 
 $u = exigir_login(['admin']);
+$pdo = db();
 header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
 header('Pragma: no-cache');
 
 $analise = null;
+$validacao = null;
 $erros = [];
 
 if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
@@ -46,6 +48,14 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
                     $erros[] = (string)($analise['erro'] ?? 'Não foi possível analisar o CSV.');
                     $analise = null;
                 } else {
+                    $validacao = importacao_validar_registos_pacientes(
+                        $pdo,
+                        $analise['registos_mapeados'] ?? [],
+                        $analise['mapeamento_sugerido'] ?? []
+                    );
+                    // Os registos completos só vivem durante este pedido e não são enviados para o HTML.
+                    unset($analise['registos_mapeados']);
+
                     // A auditoria guarda apenas contagens, nunca valores de pacientes.
                     registar_admin(
                         'previsualizar_importacao_csv',
@@ -62,13 +72,21 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
     }
 }
 
+$rotulosCamposImportacao = [
+    'nome_completo' => 'Nome completo',
+    'email' => 'Email',
+    'telemovel' => 'Telemóvel',
+    'data_nascimento' => 'Data de nascimento',
+    'numero_utente_sns' => 'Número de utente SNS',
+];
+
 $tituloPagina = 'Importação de dados';
 require __DIR__ . '/../includes/cabecalho.php';
 ?>
 
 <p><a href="admin/seccao-sistema.php">← Administração do sistema</a></p>
 <h1>Importar dados de outro sistema</h1>
-<p class="ajuda">Ferramenta inicial para analisar exportações de programas antigos antes de planear a migração.</p>
+<p class="ajuda">Ferramenta de preparação para migrar dados de programas antigos. Nesta fase analisa fichas de pacientes e compara correspondências por email, sem alterar os dados.</p>
 
 <div class="alerta alerta-info" role="status">
     <strong>Modo de pré-visualização.</strong>
@@ -130,6 +148,83 @@ require __DIR__ . '/../includes/cabecalho.php';
             </p>
         <?php endif; ?>
 
+        <h3>Mapeamento automático sugerido</h3>
+        <p class="ajuda">Compara os nomes das colunas com os campos conhecidos da ficha de paciente. Só são aceites correspondências exatas após normalização; os campos não reconhecidos ficam por mapear.</p>
+        <div class="tabela-scroll">
+            <table class="tabela">
+                <thead><tr><th>Campo do nosso sistema</th><th>Coluna de origem</th><th>Estado</th></tr></thead>
+                <tbody>
+                    <?php foreach ($rotulosCamposImportacao as $campo => $rotulo): ?>
+                        <?php $colunaSugerida = $analise['mapeamento_sugerido'][$campo] ?? null; ?>
+                        <tr>
+                            <th><?= e($rotulo) ?></th>
+                            <td><?= $colunaSugerida !== null ? e((string)$colunaSugerida) : '—' ?></td>
+                            <td><?= $colunaSugerida !== null ? 'Correspondência sugerida' : 'Não identificada' ?></td>
+                        </tr>
+                    <?php endforeach; ?>
+                </tbody>
+            </table>
+        </div>
+
+        <?php if (is_array($validacao)): ?>
+            <h3>Validação dos registos de pacientes</h3>
+            <div class="tabela-scroll">
+                <table class="tabela">
+                    <tbody>
+                        <tr><th>Registos com campos válidos</th><td><?= (int)$validacao['validos'] ?></td></tr>
+                        <tr><th>Registos com erros</th><td><?= (int)$validacao['invalidos'] ?></td></tr>
+                        <tr><th>Possíveis duplicados dentro do ficheiro</th><td><?= (int)$validacao['possiveis_duplicados_ficheiro'] ?></td></tr>
+                        <tr><th>Correspondências por email</th><td><?= (int)$validacao['correspondencias_email_base_dados'] ?></td></tr>
+                        <tr><th>Correspondências por telefone</th><td><?= (int)$validacao['correspondencias_telefone_base_dados'] ?></td></tr>
+                        <tr><th>Correspondências por nome + nascimento</th><td><?= (int)$validacao['correspondencias_nome_data_base_dados'] ?></td></tr>
+                        <tr><th>Registos com pelo menos uma correspondência</th><td><?= (int)$validacao['total_correspondencias_base_dados'] ?></td></tr>
+                        <tr><th>Registos sem email</th><td><?= (int)$validacao['sem_email'] ?></td></tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <?php if (empty($validacao['mapeamento_completo'])): ?>
+                <div class="alerta alerta-erro" role="alert">
+                    Não foi possível identificar a coluna obrigatória do nome do paciente. Nenhuma validação de conteúdo foi executada.
+                </div>
+            <?php endif; ?>
+
+            <?php if (empty($validacao['comparacao_base_dados_disponivel'])): ?>
+                <div class="alerta alerta-erro" role="alert">
+                    A comparação com a base de dados não ficou disponível. Não interpretes a ausência de correspondências como novos pacientes.
+                </div>
+            <?php endif; ?>
+
+            <?php if ((int)$validacao['total_correspondencias_base_dados'] > 0): ?>
+                <div class="alerta alerta-info" role="status">
+                    Foram encontradas <?= (int)$validacao['total_correspondencias_base_dados'] ?> linha(s) com pelo menos uma possível correspondência na base atual. Um email, telefone ou nome/data coincidente não prova que seja a mesma pessoa; cada caso exige revisão humana. Não juntámos nem alterámos registos.
+                </div>
+            <?php endif; ?>
+
+            <?php if ((int)$validacao['possiveis_duplicados_ficheiro'] > 0): ?>
+                <div class="alerta alerta-info" role="status">
+                    Existem possíveis duplicados dentro do próprio ficheiro. Podem ser pessoas diferentes que partilham contacto; cada caso precisa de revisão humana.
+                </div>
+            <?php endif; ?>
+
+            <?php if (!empty($validacao['amostra_revisao'])): ?>
+                <h3>Primeiras linhas que precisam de revisão</h3>
+                <div class="tabela-scroll">
+                    <table class="tabela">
+                        <thead><tr><th>Linha CSV</th><th>Motivo</th></tr></thead>
+                        <tbody>
+                            <?php foreach ($validacao['amostra_revisao'] as $itemRevisao): ?>
+                                <tr>
+                                    <td><?= (int)$itemRevisao['linha'] ?></td>
+                                    <td><?= e((string)$itemRevisao['motivo']) ?></td>
+                                </tr>
+                            <?php endforeach; ?>
+                        </tbody>
+                    </table>
+                </div>
+            <?php endif; ?>
+        <?php endif; ?>
+
         <h3>Colunas identificadas</h3>
         <ul>
             <?php foreach ($analise['cabecalhos'] as $cabecalho): ?>
@@ -167,9 +262,9 @@ require __DIR__ . '/../includes/cabecalho.php';
         </div>
         <div class="alerta alerta-info" role="status">
             <strong>Importação não executada.</strong>
-            Ainda falta identificar o sistema de origem, mapear os campos, detetar correspondências
-            com os registos existentes e validar as relações. Não uses esta pré-visualização como
-            prova de que os dados podem ser importados sem perdas.
+            O sistema sugeriu o mapeamento, validou alguns campos e comparou email, telefone normalizado e nome/data
+            de nascimento apenas como pistas de possível correspondência;
+            não verificou relações clínicas nem fundiu registos. Nenhum dado foi inserido, atualizado ou apagado.
         </div>
     </section>
 <?php endif; ?>
@@ -180,8 +275,9 @@ require __DIR__ . '/../includes/cabecalho.php';
         <li>Não liga diretamente a bases de dados ou APIs de programas externos.</li>
         <li>Não importa ficheiros Excel XLS/XLSX, XML, SQL, imagens ou documentos nesta versão.</li>
         <li>Não cria nem atualiza pacientes, contas, funcionários, consultas ou pagamentos.</li>
-        <li>Não deteta duplicados entre o ficheiro e a base de dados atual.</li>
-        <li>Não substitui o backup, o mapeamento dos campos nem a aprovação da clínica.</li>
+        <li>As correspondências são apenas por email, telefone normalizado e nome/data de nascimento; não há análise documental nem fusão automática.</li>
+        <li>Não permite corrigir manualmente o mapeamento sugerido nem executar uma importação.</li>
+        <li>Não substitui o backup, o mapeamento completo das relações nem a aprovação da clínica.</li>
     </ul>
     <p class="ajuda">
         Estas capacidades serão acrescentadas por fases, depois de conhecermos os formatos

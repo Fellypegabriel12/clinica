@@ -29,6 +29,80 @@ function importacao_normalizar_cabecalho(string $valor): string
     return trim($valor, '_');
 }
 
+/**
+ * Sugere o mapeamento dos cabeçalhos de uma exportação para o modelo local.
+ * Só usa correspondências exatas após normalização; não tenta adivinhar dados
+ * clínicos nem associa uma coluna a mais do que um campo.
+ *
+ * @return array<string,string> campo interno => cabeçalho original
+ */
+function importacao_sugerir_mapeamento_pacientes(array $cabecalhos): array
+{
+    $aliases = [
+        'nome_completo' => [
+            'nome_completo', 'nome', 'nome_paciente', 'nome_cliente',
+            'nome_do_paciente', 'nome_do_cliente', 'full_name', 'patient_name',
+            'client_name', 'name',
+        ],
+        'email' => [
+            'email', 'e_mail', 'correio_eletronico', 'email_address', 'mail',
+        ],
+        'telemovel' => [
+            'telemovel', 'telefone', 'telefone_movel', 'telemovel_contacto',
+            'telefone_contacto', 'numero_telefone', 'mobile', 'phone',
+        ],
+        'data_nascimento' => [
+            'data_nascimento', 'nascimento', 'data_de_nascimento',
+            'birth_date', 'date_of_birth', 'birthdate', 'dob',
+        ],
+        'numero_utente_sns' => [
+            'numero_utente_sns', 'utente_sns', 'numero_sns', 'sns_number',
+            'sns',
+        ],
+    ];
+
+    $porNome = [];
+    foreach ($cabecalhos as $cabecalho) {
+        $normalizado = importacao_normalizar_cabecalho((string)$cabecalho);
+        if ($normalizado !== '') {
+            $porNome[$normalizado] = (string)$cabecalho;
+        }
+    }
+
+    $resultado = [];
+    $cabecalhosUsados = [];
+    foreach ($aliases as $campo => $opcoes) {
+        foreach ($opcoes as $alias) {
+            $chave = importacao_normalizar_cabecalho($alias);
+            if (isset($porNome[$chave]) && !isset($cabecalhosUsados[$chave])) {
+                $resultado[$campo] = $porNome[$chave];
+                $cabecalhosUsados[$chave] = true;
+                break;
+            }
+        }
+    }
+    return $resultado;
+}
+
+/** Converte formatos de data comuns para YYYY-MM-DD sem corrigir datas inválidas. */
+function importacao_data_iso(string $valor): ?string
+{
+    $valor = trim($valor);
+    if ($valor === '') {
+        return null;
+    }
+    foreach (['!Y-m-d', '!d/m/Y', '!d-m-Y', '!d.m.Y'] as $formato) {
+        $data = DateTimeImmutable::createFromFormat($formato, $valor);
+        $erros = DateTimeImmutable::getLastErrors();
+        if ($data !== false
+            && ($erros === false || ((int)$erros['warning_count'] === 0 && (int)$erros['error_count'] === 0))
+            && $data->format(substr($formato, 1)) === $valor) {
+            return $data->format('Y-m-d');
+        }
+    }
+    return null;
+}
+
 /** @return array{delimitador:string,campos:int} */
 function importacao_detectar_delimitador(string $primeiraLinha): array
 {
@@ -47,7 +121,8 @@ function importacao_detectar_delimitador(string $primeiraLinha): array
  * @return array{
  *   ok:bool,erro?:string,avisos?:array,delimitador?:string,encoding?:string,
  *   cabecalhos?:array,linhas?:int,linhas_vazias?:int,linhas_irregulares?:int,
- *   duplicados_email?:int,colunas_sensiveis?:array,amostra?:array
+ *   duplicados_email?:int,colunas_sensiveis?:array,amostra?:array,
+ *   mapeamento_sugerido?:array,registos_mapeados?:array
  * }
  */
 function importacao_analisar_csv(string $conteudo): array
@@ -127,6 +202,15 @@ function importacao_analisar_csv(string $conteudo): array
         return ['ok' => false, 'erro' => 'Existem cabeçalhos repetidos ou equivalentes: ' . implode(', ', array_unique($duplicadosCabecalho)) . '. Renomeia essas colunas para evitar associações erradas.'];
     }
 
+    $mapeamentoSugerido = importacao_sugerir_mapeamento_pacientes($cabecalhos);
+    $indicesMapeados = [];
+    foreach ($mapeamentoSugerido as $campo => $cabecalho) {
+        $indice = array_search($cabecalho, $cabecalhos, true);
+        if ($indice !== false) {
+            $indicesMapeados[$campo] = (int)$indice;
+        }
+    }
+
     $emailIndice = null;
     foreach ($normalizados as $nome => $indice) {
         if (in_array($nome, ['email', 'e_mail', 'correio_eletronico'], true)) {
@@ -156,6 +240,7 @@ function importacao_analisar_csv(string $conteudo): array
     $duplicadosEmail = 0;
     $emailsVistos = [];
     $amostra = [];
+    $registosMapeados = [];
     $maxLinhas = 10000;
     $maxCelulaBytes = 20000;
 
@@ -185,6 +270,7 @@ function importacao_analisar_csv(string $conteudo): array
         if (count($registo) !== count($cabecalhos)) {
             $linhasIrregulares++;
             if (count($registo) > count($cabecalhos)) {
+                $registosMapeados[] = [];
                 continue;
             }
             $registo = array_pad($registo, count($cabecalhos), '');
@@ -199,6 +285,12 @@ function importacao_analisar_csv(string $conteudo): array
             }
             $linha[$cabecalho] = mb_substr(trim($valor), 0, 180);
         }
+
+        $registoMapeado = [];
+        foreach ($indicesMapeados as $campo => $indiceMapeado) {
+            $registoMapeado[$campo] = trim((string)($registo[$indiceMapeado] ?? ''));
+        }
+        $registosMapeados[] = $registoMapeado;
 
         if ($emailIndice !== null) {
             $email = mb_strtolower(trim((string)($registo[$emailIndice] ?? '')));
@@ -243,5 +335,326 @@ function importacao_analisar_csv(string $conteudo): array
         'colunas_sensiveis' => $colunasSensiveis,
         'avisos' => $avisos,
         'amostra' => $amostra,
+        'mapeamento_sugerido' => $mapeamentoSugerido,
+        'registos_mapeados' => $registosMapeados,
+    ];
+}
+
+
+/**
+ * Procura correspondências exatas por email na base local.
+ * Devolve apenas o indicador de existência; não expõe dados de outros pacientes.
+ *
+ * @return array{ok:bool,emails_existentes?:array<string,bool>,erro?:string}
+ */
+function importacao_emails_existentes(PDO $pdo, array $emails): array
+{
+    $emails = array_values(array_unique(array_filter(array_map(
+        static fn($email): string => mb_strtolower(trim((string)$email)),
+        $emails
+    ), static fn(string $email): bool => $email !== '')));
+
+    if ($emails === []) {
+        return ['ok' => true, 'emails_existentes' => []];
+    }
+
+    $encontrados = [];
+    try {
+        foreach (array_chunk($emails, 200) as $lote) {
+            $marcadores = implode(',', array_fill(0, count($lote), '?'));
+            $sql = "SELECT p.email AS email_paciente, u.email AS email_conta
+                    FROM pacientes p
+                    LEFT JOIN utilizadores u ON u.id = p.utilizador_id
+                    WHERE LOWER(TRIM(COALESCE(p.email, ''))) IN ($marcadores)
+                       OR LOWER(TRIM(COALESCE(u.email, ''))) IN ($marcadores)";
+            $st = $pdo->prepare($sql);
+            $st->execute(array_merge($lote, $lote));
+            foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $registo) {
+                foreach (['email_paciente', 'email_conta'] as $campo) {
+                    $email = mb_strtolower(trim((string)($registo[$campo] ?? '')));
+                    if ($email !== '') {
+                        $encontrados[$email] = true;
+                    }
+                }
+            }
+
+            // Também deteta contas de paciente ainda não ligadas a uma ficha.
+            $sqlContas = "SELECT email FROM utilizadores
+                          WHERE papel = 'paciente'
+                            AND LOWER(TRIM(email)) IN ($marcadores)";
+            $stContas = $pdo->prepare($sqlContas);
+            $stContas->execute($lote);
+            foreach ($stContas->fetchAll(PDO::FETCH_COLUMN) as $emailConta) {
+                $email = mb_strtolower(trim((string)$emailConta));
+                if ($email !== '') {
+                    $encontrados[$email] = true;
+                }
+            }
+        }
+    } catch (Throwable $e) {
+        error_log('Importação: falha ao comparar emails com a base de dados: ' . $e->getMessage());
+        return ['ok' => false, 'erro' => 'Não foi possível comparar os emails com os registos atuais.'];
+    }
+
+    return ['ok' => true, 'emails_existentes' => $encontrados];
+}
+
+/**
+ * Valida registos de pacientes usando o mapeamento automático e compara
+ * emails exatos com a base atual. Não cria, altera, funde nem apaga dados.
+ *
+ * @return array<string,mixed>
+ */
+function importacao_validar_registos_pacientes(PDO $pdo, array $registos, array $mapeamento): array
+{
+    $total = count($registos);
+    if (!isset($mapeamento['nome_completo'])) {
+        return [
+            'mapeamento_completo' => false,
+            'campos_obrigatorios_em_falta' => ['nome_completo'],
+            'total' => $total,
+            'validos' => 0,
+            'invalidos' => $total,
+            'possiveis_duplicados_ficheiro' => 0,
+            'correspondencias_email_base_dados' => 0,
+            'correspondencias_telefone_base_dados' => 0,
+            'correspondencias_nome_data_base_dados' => 0,
+            'total_correspondencias_base_dados' => 0,
+            'sem_email' => $total,
+            'comparacao_base_dados_disponivel' => true,
+            'amostra_revisao' => [],
+        ];
+    }
+
+    $validos = 0;
+    $invalidos = 0;
+    $semEmail = 0;
+    $emailsDoFicheiro = [];
+    $chavesVistas = [];
+    $possiveisDuplicados = 0;
+    $linhasRevisao = [];
+
+    foreach ($registos as $indice => $registo) {
+        $problemas = [];
+        $nome = trim((string)($registo['nome_completo'] ?? ''));
+        $emailRaw = trim((string)($registo['email'] ?? ''));
+        $email = mb_strtolower($emailRaw);
+        $telefoneRaw = trim((string)($registo['telemovel'] ?? ''));
+        $telefone = preg_replace('/\D+/', '', $telefoneRaw) ?? '';
+        $nascimentoRaw = trim((string)($registo['data_nascimento'] ?? ''));
+        $snsRaw = trim((string)($registo['numero_utente_sns'] ?? ''));
+
+        if ($nome === '' || mb_strlen($nome) > 150) {
+            $problemas[] = 'Nome em falta ou demasiado longo';
+        }
+        if ($emailRaw !== '' && (!filter_var($emailRaw, FILTER_VALIDATE_EMAIL) || mb_strlen($emailRaw) > 190)) {
+            $problemas[] = 'Email inválido';
+        }
+        if ($telefoneRaw !== '' && (strlen($telefone) < 7 || strlen($telefone) > 15)) {
+            $problemas[] = 'Telefone inválido';
+        }
+        $nascimentoIso = null;
+        if ($nascimentoRaw !== '') {
+            $nascimentoIso = importacao_data_iso($nascimentoRaw);
+            if ($nascimentoIso === null) {
+                $problemas[] = 'Data de nascimento inválida ou não reconhecida';
+            } elseif ($nascimentoIso > (new DateTimeImmutable('today'))->format('Y-m-d')) {
+                $problemas[] = 'Data de nascimento no futuro';
+            }
+        }
+        if ($snsRaw !== '') {
+            $sns = preg_replace('/\D+/', '', $snsRaw) ?? '';
+            if (strlen($sns) !== 9) {
+                $problemas[] = 'Número SNS deve conter 9 algarismos';
+            }
+        }
+
+        if ($email === '') {
+            $semEmail++;
+        }
+
+        $chavesLinha = [];
+        if ($email !== '' && filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            $chavesLinha[] = 'email:' . $email;
+        }
+        if ($telefone !== '' && strlen($telefone) >= 7) {
+            $chavesLinha[] = 'telefone:' . $telefone;
+        }
+        if ($nome !== '' && $nascimentoIso !== null) {
+            $chavesLinha[] = 'nome-data:' . importacao_normalizar_cabecalho($nome) . ':' . $nascimentoIso;
+        }
+
+        $duplicadoNaLinha = false;
+        foreach ($chavesLinha as $chaveDuplicado) {
+            if (isset($chavesVistas[$chaveDuplicado])) {
+                $duplicadoNaLinha = true;
+            }
+            $chavesVistas[$chaveDuplicado] = true;
+        }
+        if ($duplicadoNaLinha) {
+            $possiveisDuplicados++;
+            if (count($linhasRevisao) < 20) {
+                $linhasRevisao[] = [
+                    'linha' => $indice + 2,
+                    'motivo' => 'Possível duplicado por email, telefone ou nome/data dentro do próprio ficheiro',
+                ];
+            }
+        }
+
+        if ($problemas === []) {
+            $validos++;
+        } else {
+            $invalidos++;
+            if (count($linhasRevisao) < 20) {
+                $linhasRevisao[] = [
+                    'linha' => $indice + 2,
+                    'motivo' => implode('; ', $problemas),
+                ];
+            }
+        }
+
+        if ($email !== '' && isset($emailsDoFicheiro[$email])) {
+            if (count($linhasRevisao) < 20) {
+                $linhasRevisao[] = [
+                    'linha' => $indice + 2,
+                    'motivo' => 'Email repetido no ficheiro',
+                ];
+            }
+        }
+        if ($email !== '') {
+            $emailsDoFicheiro[$email] = true;
+        }
+    }
+
+    $comparacao = importacao_comparar_registos_pacientes($pdo, $registos);
+
+    return [
+        'mapeamento_completo' => true,
+        'campos_obrigatorios_em_falta' => [],
+        'total' => $total,
+        'validos' => $validos,
+        'invalidos' => $invalidos,
+        'possiveis_duplicados_ficheiro' => $possiveisDuplicados,
+        'correspondencias_email_base_dados' => (int)($comparacao['por_email'] ?? 0),
+        'correspondencias_telefone_base_dados' => (int)($comparacao['por_telefone'] ?? 0),
+        'correspondencias_nome_data_base_dados' => (int)($comparacao['por_nome_data'] ?? 0),
+        'total_correspondencias_base_dados' => (int)($comparacao['total'] ?? 0),
+        'sem_email' => $semEmail,
+        'comparacao_base_dados_disponivel' => !empty($comparacao['ok']),
+        'amostra_revisao' => $linhasRevisao,
+    ];
+}
+
+
+/**
+ * Compara os registos importados com pacientes existentes usando email,
+ * telefone normalizado e nome+data de nascimento. Devolve apenas indicadores.
+ *
+ * @return array<string,mixed>
+ */
+function importacao_comparar_registos_pacientes(PDO $pdo, array $registos): array
+{
+    $emails = [];
+    $telefones = [];
+    $paresNomeData = [];
+
+    foreach ($registos as $registo) {
+        $email = mb_strtolower(trim((string)($registo['email'] ?? '')));
+        if ($email !== '' && filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            $emails[$email] = $email;
+        }
+
+        $telefone = preg_replace('/\D+/', '', (string)($registo['telemovel'] ?? '')) ?? '';
+        if (strlen($telefone) >= 7 && strlen($telefone) <= 15) {
+            $telefones[$telefone] = $telefone;
+        }
+
+        $nome = trim((string)($registo['nome_completo'] ?? ''));
+        $nascimento = importacao_data_iso(trim((string)($registo['data_nascimento'] ?? '')));
+        if ($nome !== '' && $nascimento !== null) {
+            $chave = importacao_normalizar_cabecalho($nome) . '|' . $nascimento;
+            $paresNomeData[$chave] = ['nome' => $nome, 'data' => $nascimento];
+        }
+    }
+
+    $emailResult = importacao_emails_existentes($pdo, array_values($emails));
+    if (empty($emailResult['ok'])) {
+        return ['ok' => false, 'erro' => (string)($emailResult['erro'] ?? 'Falha na comparação de emails.')];
+    }
+    $emailsExistentes = $emailResult['emails_existentes'] ?? [];
+    $telefonesExistentes = [];
+    $nomesDatasExistentes = [];
+
+    try {
+        // Retira apenas separadores comuns; não tenta inferir indicativos internacionais.
+        $exprTelefone = "REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(COALESCE(p.telemovel, ''), ' ', ''), '+', ''), '-', ''), '(', ''), ')', ''), '.', '')";
+        foreach (array_chunk(array_values($telefones), 200) as $lote) {
+            $marcadores = implode(',', array_fill(0, count($lote), '?'));
+            $sql = "SELECT DISTINCT $exprTelefone AS telefone_normalizado
+                    FROM pacientes p
+                    WHERE $exprTelefone IN ($marcadores)";
+            $st = $pdo->prepare($sql);
+            $st->execute($lote);
+            foreach ($st->fetchAll(PDO::FETCH_COLUMN) as $telefone) {
+                $normalizado = preg_replace('/\D+/', '', (string)$telefone) ?? '';
+                if ($normalizado !== '') {
+                    $telefonesExistentes[$normalizado] = true;
+                }
+            }
+        }
+
+        foreach (array_chunk(array_values($paresNomeData), 100) as $lote) {
+            $condicoes = [];
+            $parametros = [];
+            foreach ($lote as $par) {
+                $condicoes[] = '(LOWER(TRIM(nome_completo)) = LOWER(TRIM(?)) AND data_nascimento = ?)';
+                $parametros[] = $par['nome'];
+                $parametros[] = $par['data'];
+            }
+            if ($condicoes === []) {
+                continue;
+            }
+            $sql = 'SELECT DISTINCT LOWER(TRIM(nome_completo)) AS nome_normalizado, data_nascimento
+                    FROM pacientes WHERE ' . implode(' OR ', $condicoes);
+            $st = $pdo->prepare($sql);
+            $st->execute($parametros);
+            foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $registo) {
+                $nome = mb_strtolower(trim((string)$registo['nome_normalizado']));
+                $data = (string)$registo['data_nascimento'];
+                $nomesDatasExistentes[importacao_normalizar_cabecalho($nome) . '|' . $data] = true;
+            }
+        }
+    } catch (Throwable $e) {
+        error_log('Importação: falha ao comparar pacientes: ' . $e->getMessage());
+        return ['ok' => false, 'erro' => 'Não foi possível comparar telefones e nomes/datas com os registos atuais.'];
+    }
+
+    $porEmail = 0;
+    $porTelefone = 0;
+    $porNomeData = 0;
+    $totalCorrespondencias = 0;
+
+    foreach ($registos as $registo) {
+        $email = mb_strtolower(trim((string)($registo['email'] ?? '')));
+        $telefone = preg_replace('/\D+/', '', (string)($registo['telemovel'] ?? '')) ?? '';
+        $nome = importacao_normalizar_cabecalho(trim((string)($registo['nome_completo'] ?? '')));
+        $data = importacao_data_iso(trim((string)($registo['data_nascimento'] ?? '')));
+
+        $matchEmail = $email !== '' && isset($emailsExistentes[$email]);
+        $matchTelefone = $telefone !== '' && isset($telefonesExistentes[$telefone]);
+        $matchNomeData = $nome !== '' && $data !== null && isset($nomesDatasExistentes[$nome . '|' . $data]);
+
+        $porEmail += $matchEmail ? 1 : 0;
+        $porTelefone += $matchTelefone ? 1 : 0;
+        $porNomeData += $matchNomeData ? 1 : 0;
+        $totalCorrespondencias += ($matchEmail || $matchTelefone || $matchNomeData) ? 1 : 0;
+    }
+
+    return [
+        'ok' => true,
+        'total' => $totalCorrespondencias,
+        'por_email' => $porEmail,
+        'por_telefone' => $porTelefone,
+        'por_nome_data' => $porNomeData,
     ];
 }

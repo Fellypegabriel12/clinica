@@ -54,4 +54,10 @@ Sem estes elementos, qualquer conector específico ou promessa de importação i
 
 ## 5. Estado de implementação
 
-Este documento é um levantamento inicial e uma especificação de direção. Não foi acrescentado qualquer adaptador novo, não foram alterados registos financeiros e não foi importado qualquer dado de pacientes. A integração real depende de identificar os sistemas e obter documentação/credenciais de teste fornecidas pela empresa.
+- A página `admin/importar-dados.php` está disponível apenas para administradores e aceita CSV até 5 MB/10 000 registos.
+- O serviço `includes/servicos/importacao.php` deteta delimitadores e codificações comuns, sugere mapeamento de colunas para nome, email, telefone, data de nascimento e número SNS, valida formatos básicos e sinaliza possíveis duplicados dentro do próprio ficheiro.
+- A pré-visualização compara emails exatos com fichas/contas de paciente, telefones após retirar separadores comuns e combinações exatas de nome + data de nascimento com fichas locais. Estas correspondências são apenas pistas; não se fundem pessoas automaticamente. Não há correspondência por documentos.
+- O relatório só apresenta contagens e motivos; os valores dos registos completos não são guardados nem enviados para o HTML fora da amostra de pré-visualização. A análise não cria, altera, funde ou apaga pacientes/contas.
+- Existem 17 testes automatizados para parser, codificações, mapeamento, validação e comparação de email/telefone/nome-data com uma base SQLite de teste.
+
+Continuam por implementar: mapeamento manual, comparação por chaves adicionais, staging persistente e protegido, importação em lotes, prevenção de duplicação entre execuções, importação de relações/documentos e conectores diretos a software externo. Nenhum dado real de pacientes foi importado. A integração real depende de identificar os sistemas e obter documentação/credenciais de teste fornecidas pela empresa.

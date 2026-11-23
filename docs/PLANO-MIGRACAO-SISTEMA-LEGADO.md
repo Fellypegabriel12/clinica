@@ -175,9 +175,11 @@ Só depois de passar os testes de sandbox e de a clínica completar a verificaç
 
 ## Implementação inicial já disponível no projeto
 
-A página `admin/importar-dados.php` disponibiliza uma pré-visualização segura de CSV para administradores. A primeira versão aceita ficheiros até 5 MB e 10 000 registos, deteta separadores comuns e codificações UTF-8/UTF-16/Windows-1252, mostra até 10 linhas de amostra e assinala alguns problemas estruturais. A análise é read-only: não grava pacientes, utilizadores, consultas ou pagamentos. Existem testes automatizados em `tests/test_importacao_csv.php`.
+A página `admin/importar-dados.php` disponibiliza uma pré-visualização read-only para administradores. Aceita CSV até 5 MB e 10 000 registos, deteta delimitadores e codificações UTF-8/UTF-16/Windows-1252, e mostra uma amostra limitada.
 
-Esta ferramenta ainda não faz mapeamento de campos, comparação com os registos existentes, staging persistente ou importação. Também não lê XLS/XLSX, XML ou backups SQL. A ligação ao sistema de origem continua dependente da descoberta e documentação desse sistema.
+O sistema já sugere o mapeamento de cabeçalhos para nome, email, telemóvel, data de nascimento e número SNS. Faz validação básica dos campos, sinaliza possíveis duplicados no próprio ficheiro e compara email, telefone normalizado e nome+data de nascimento com registos existentes. Estas chaves são apenas pistas de revisão — um telefone pode ser partilhado e nomes/datas podem coincidir — e nunca provocam fusões automáticas.
+
+A ferramenta não grava pacientes, utilizadores, consultas ou pagamentos. Ainda faltam mapeamento manual, staging persistente e protegido, regras de associação, importação idempotente em lotes e relatório de reconciliação. Também não lê XLS/XLSX, XML ou backups SQL. Existem 17 testes automatizados em `tests/test_importacao_csv.php`, incluindo a comparação de email, telefone e nome/data com uma base SQLite isolada. A ligação ao sistema de origem continua dependente da descoberta e documentação desse sistema.
 
 ## Informação que falta para avançar para a integração real
 
