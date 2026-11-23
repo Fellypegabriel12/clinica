@@ -30,11 +30,13 @@ $metodos = [
         'modo' => 'presencial',
     ],
     'sinal' => [
-        'ativo' => config_valor($pdo, 'pagamento_sinal_ativo', 1) === 1 && $valorSinal > 0 && MODO_DEV,
+        'ativo' => config_valor($pdo, 'pagamento_sinal_ativo', 1) === 1 && $valorSinal > 0 && (MODO_DEV || $gatewayConfigurado),
         'titulo' => 'Pagar um sinal agora (' . $pctSinal . '%)',
-        'texto' => 'Pagas ' . formatar_preco($valorSinal) . ' agora e o restante na clínica. (Pagamento em modo demonstração.)',
+        'texto' => $gatewayConfigurado
+            ? 'Pagas ' . formatar_preco($valorSinal) . ' agora através da Stripe; o valor restante é pago na clínica.'
+            : 'Pagas ' . formatar_preco($valorSinal) . ' agora e o restante na clínica. (Pagamento em modo demonstração.)',
         'valor' => $valorSinal,
-        'modo' => 'demo',
+        'modo' => $gatewayConfigurado ? 'gateway_sinal' : 'demo',
     ],
     'eletronico_antecipado' => [
         'ativo' => config_valor($pdo, 'pagamento_online_ativo', 1) === 1 && !$r['estimado'] && (MODO_DEV || $gatewayConfigurado),
@@ -128,7 +130,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
             }
 
-            $gatewayNome = $modoPagamento === 'gateway' ? 'stripe' : null;
+            $gatewayNome = in_array($modoPagamento, ['gateway', 'gateway_sinal'], true) ? 'stripe' : null;
             $pdo->prepare(
                 "INSERT INTO pagamentos (marcacao_id, metodo, valor, estado, gateway) VALUES (?, ?, ?, 'pendente', ?)"
             )->execute([$marcacaoId, $metodo, $metodos[$metodo]['valor'], $gatewayNome]);
@@ -148,6 +150,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if ($estado === 'confirmada') {
                 flash_definir('sucesso', 'Marcação confirmada!');
                 redirecionar('marcar-confirmacao.php?ref=' . urlencode($ref));
+            }
+            if ($modoPagamento === 'gateway_sinal') {
+                redirecionar('checkout.php?ref=' . urlencode($ref) . '&tipo=sinal');
             }
             if ($modoPagamento === 'gateway') {
                 redirecionar('checkout.php?ref=' . urlencode($ref));

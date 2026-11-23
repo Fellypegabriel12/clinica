@@ -13,6 +13,7 @@ $u   = exigir_login();
 $pdo = db();
 
 $ref = trim((string)($_GET['ref'] ?? ''));
+$tipoCheckout = (string)($_GET['tipo'] ?? 'total') === 'sinal' ? 'sinal' : 'total';
 $erroPagina = '';
 $marcacao = null;
 $resumo = null;
@@ -21,6 +22,30 @@ $prep = null;
 try {
     $marcacao = checkout_carregar_marcacao($pdo, $ref, (int)$u['id']);
     $resumo = checkout_resumo($pdo, $marcacao);
+
+    if ($tipoCheckout === 'sinal') {
+        $pagamentoSinal = checkout_pagamento_em_curso($pdo, (int)$marcacao['id'], 'sinal');
+        if (!$pagamentoSinal) {
+            $st = $pdo->prepare(
+                "SELECT id, estado FROM pagamentos
+                  WHERE marcacao_id = ? AND metodo = 'sinal' AND gateway = 'stripe'
+                  ORDER BY id DESC LIMIT 1"
+            );
+            $st->execute([(int)$marcacao['id']]);
+            $sinalAnterior = $st->fetch();
+            if ($sinalAnterior && $sinalAnterior['estado'] === 'pago') {
+                redirecionar('checkout-confirmacao.php?ref=' . urlencode((string)$marcacao['referencia']));
+            }
+            throw new RuntimeException('Não existe um sinal pendente para esta marcação. Volta à tua área pessoal.');
+        }
+        $valorSinal = round((float)$pagamentoSinal['valor'], 2);
+        if ($valorSinal <= 0.0001 || $valorSinal > (float)$resumo['valor'] + 0.0001) {
+            throw new RuntimeException('O sinal já não corresponde ao valor em falta. Contacta a clínica.');
+        }
+        $resumo['valor'] = $valorSinal;
+        $resumo['tipo_pagamento'] = 'sinal';
+        $resumo['saldo_apos_pagamento'] = max(0, round((float)$resumo['total'] - (float)$resumo['pago'] - $valorSinal, 2));
+    }
 
     if ($resumo['cancelada']) {
         $erroPagina = 'Esta marcação foi cancelada. Se precisares de ajuda, contacta a clínica.';
@@ -45,7 +70,7 @@ try {
             if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
                 $email = trim((string)($u['email'] ?? ''));
             }
-            $prep = checkout_preparar_intencao($pdo, $gateway, $marcacao, $resumo, $email);
+            $prep = checkout_preparar_intencao($pdo, $gateway, $marcacao, $resumo, $email, $tipoCheckout);
             if (empty($prep['ok'])) {
                 $erroPagina = (string)($prep['erro'] ?? 'Não foi possível iniciar o pagamento.');
             } elseif (($prep['estado'] ?? '') === 'pago') {
@@ -118,6 +143,10 @@ $tituloPagina = $erroPagina !== '' ? 'Checkout indisponível' : 'Checkout seguro
                 </div>
                 <div class="product-meta">
                     <div><strong>Referência:</strong> <?= e((string)$marcacao['referencia']) ?></div>
+                    <?php if ($tipoCheckout === 'sinal'): ?>
+                        <div><strong>Tipo de pagamento:</strong> Sinal da marcação</div>
+                        <div><strong>Saldo previsto depois do sinal:</strong> <?= e(formatar_preco($resumo['saldo_apos_pagamento'] ?? 0)) ?></div>
+                    <?php endif; ?>
                     <?php if (!empty($resumo['pacientes'])): ?>
                         <div class="product-patients"><strong>Paciente<?= count($resumo['pacientes']) > 1 ? 's' : '' ?>:</strong> <?= e(implode(', ', $resumo['pacientes'])) ?></div>
                     <?php endif; ?>
@@ -138,7 +167,7 @@ $tituloPagina = $erroPagina !== '' ? 'Checkout indisponível' : 'Checkout seguro
             </section>
 
             <section class="payment-side" aria-label="Dados de pagamento">
-                <h2>Pagar com cartão</h2>
+                <h2><?= $tipoCheckout === 'sinal' ? 'Pagar sinal com cartão' : 'Pagar com cartão' ?></h2>
 
                 <form id="payment-form"
                       data-publishable-key="<?= e($publishable) ?>"

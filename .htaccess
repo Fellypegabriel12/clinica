@@ -1,3 +1,9 @@
+# Bloquear o acesso HTTP aos metadados de controlo de versões.
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+  RewriteRule (^|/)\.(git|svn|hg)(/|$) - [F,NC,L]
+</IfModule>
+
 # Bloquear acesso a ficheiros sensiveis
 <FilesMatch "(?i)\.(sql|sqlite|db|bak|old|orig|log|ini|env|yml|yaml)$">
   <IfModule mod_authz_core.c>

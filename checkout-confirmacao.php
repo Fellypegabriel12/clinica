@@ -21,6 +21,7 @@ $pagamento = null;
 $cartao = ['marca' => '', 'ultimos4' => ''];
 $estado = '';
 $vista = 'pendente';
+$pagamentoParcial = false;
 
 try {
     $marcacao = checkout_carregar_marcacao($pdo, $ref, (int)$u['id']);
@@ -39,10 +40,17 @@ try {
         }
     }
 
+    $pagamentoParcial = $estado === 'pago'
+        && $pagamento !== null
+        && (string)($pagamento['metodo'] ?? '') === 'sinal'
+        && (float)$resumo['valor'] > 0.0001;
+
     if ($estado === 'pago' || ($resumo['pago'] > 0.0001 && $resumo['valor'] <= 0.0001)) {
         $vista = 'pago';
     } elseif (in_array($estado, ['falhado', 'recusado', 'cancelado'], true)) {
         $vista = 'falhado';
+    } elseif (in_array($estado, ['reembolsado', 'parcialmente_reembolsado'], true)) {
+        $vista = 'reembolsado';
     } elseif (in_array($estado, ['pendente', 'em_processamento', 'parcialmente_pago'], true)) {
         $vista = 'pendente';
     } elseif ($pagamento === null) {
@@ -64,8 +72,9 @@ $host = (string)($_SERVER['HTTP_HOST'] ?? 'localhost');
 $host = preg_replace('/[^A-Za-z0-9.\-:\[\]]/', '', $host) ?: 'localhost';
 
 $tituloPagina = match ($vista) {
-    'pago' => 'Pagamento confirmado',
+    'pago' => $pagamentoParcial ? 'Sinal confirmado' : 'Pagamento confirmado',
     'falhado' => 'Pagamento não concluído',
+    'reembolsado' => 'Pagamento reembolsado',
     default => 'A confirmar pagamento',
 };
 if ($erroPagina !== '') { $tituloPagina = 'Confirmação indisponível'; }
@@ -88,7 +97,9 @@ $marcaBadge = match ($marcaCurta) {
 };
 $pagamentoReferencia = $pagamento ? trim((string)($pagamento['referencia_transacao'] ?? '')) : '';
 $paymentIntentId = $pagamentoReferencia !== '' && str_starts_with($pagamentoReferencia, 'pi_') ? $pagamentoReferencia : $piId;
-$podeRepetir = $vista === 'falhado' && !empty($resumo['pode_pagar']);
+$podeRepetir = in_array($vista, ['falhado', 'reembolsado'], true) && !empty($resumo['pode_pagar']);
+$tipoRetry = $vista !== 'reembolsado' && $pagamento && (string)($pagamento['metodo'] ?? '') === 'sinal' ? '&tipo=sinal' : '';
+$valorReembolsado = (float)($pagamento['valor_reembolsado'] ?? 0);
 ?>
 <!DOCTYPE html>
 <html lang="pt-PT">
@@ -145,10 +156,13 @@ $podeRepetir = $vista === 'falhado' && !empty($resumo['pode_pagar']);
             <section class="confirmation-side" aria-label="Estado do pagamento">
                 <?php if ($vista === 'pago'): ?>
                     <div class="success-check" aria-hidden="true">&#10003;</div>
-                    <h2>Obrigado pelo seu pedido</h2>
+                    <h2><?= $pagamentoParcial ? 'Sinal confirmado' : 'Obrigado pelo seu pedido' ?></h2>
                 <?php elseif ($vista === 'falhado'): ?>
                     <div class="success-check failed" aria-hidden="true">&#10005;</div>
                     <h2>O pagamento não foi concluído</h2>
+                <?php elseif ($vista === 'reembolsado'): ?>
+                    <div class="success-check failed" aria-hidden="true">&#8634;</div>
+                    <h2><?= $estado === 'reembolsado' ? 'Pagamento reembolsado' : 'Reembolso parcial registado' ?></h2>
                 <?php else: ?>
                     <div class="success-check pending" aria-hidden="true">&#8987;</div>
                     <h2>A confirmar o pagamento</h2>
@@ -171,6 +185,12 @@ $podeRepetir = $vista === 'falhado' && !empty($resumo['pode_pagar']);
                             <strong>Não cobrado</strong>
                             <span class="paid-amount"><?= e(formatar_preco($valorMostrado)) ?></span>
                         </div>
+                    <?php elseif ($vista === 'reembolsado'): ?>
+                        <div class="paid-method">
+                            <span class="visa-small"><?= e($marcaBadge) ?></span>
+                            <strong><?= $estado === 'reembolsado' ? 'Reembolso total' : 'Reembolso parcial' ?></strong>
+                            <span class="paid-amount"><?= e(formatar_preco($valorReembolsado)) ?></span>
+                        </div>
                     <?php else: ?>
                         <div class="paid-method">
                             <span class="visa-small"><?= e($marcaBadge) ?></span>
@@ -182,7 +202,11 @@ $podeRepetir = $vista === 'falhado' && !empty($resumo['pode_pagar']);
 
                 <?php if ($vista === 'pago'): ?>
                     <p class="confirmation-note">
-                        O pagamento foi confirmado. A clínica recebeu a atualização automaticamente.
+                        <?php if ($pagamentoParcial): ?>
+                            O sinal de <?= e(formatar_preco($valorMostrado)) ?> foi confirmado. Falta pagar <?= e(formatar_preco($resumo['valor'])) ?>, que podes liquidar na clínica.
+                        <?php else: ?>
+                            O pagamento foi confirmado. A clínica recebeu a atualização automaticamente.
+                        <?php endif; ?>
                         Podes consultar os detalhes na <a href="marcar-confirmacao.php?ref=<?= e(urlencode((string)$marcacao['referencia'])) ?>">tua marcação</a>.
                     </p>
                 <?php elseif ($vista === 'falhado'): ?>
@@ -191,7 +215,21 @@ $podeRepetir = $vista === 'falhado' && !empty($resumo['pode_pagar']);
                     </p>
                     <div class="confirmation-actions">
                         <?php if ($podeRepetir): ?>
-                            <a class="btn-retry" href="checkout.php?ref=<?= e(urlencode((string)$marcacao['referencia'])) ?>">Tentar novamente</a>
+                            <a class="btn-retry" href="checkout.php?ref=<?= e(urlencode((string)$marcacao['referencia'])) ?><?= e($tipoRetry) ?>">Tentar novamente</a>
+                        <?php endif; ?>
+                        <a class="btn-secondary" href="marcar-confirmacao.php?ref=<?= e(urlencode((string)$marcacao['referencia'])) ?>">Ver marcação</a>
+                    </div>
+                <?php elseif ($vista === 'reembolsado'): ?>
+                    <p class="confirmation-note">
+                        <?php if ($estado === 'reembolsado'): ?>
+                            A Stripe confirmou a devolução de <?= e(formatar_preco($valorReembolsado)) ?>. O valor voltou a ficar em dívida na marcação.
+                        <?php else: ?>
+                            Foi confirmado um reembolso parcial de <?= e(formatar_preco($valorReembolsado)) ?>. O saldo em falta é <?= e(formatar_preco($resumo['valor'])) ?>.
+                        <?php endif; ?>
+                    </p>
+                    <div class="confirmation-actions">
+                        <?php if ($podeRepetir): ?>
+                            <a class="btn-retry" href="checkout.php?ref=<?= e(urlencode((string)$marcacao['referencia'])) ?>">Pagar valor em falta</a>
                         <?php endif; ?>
                         <a class="btn-secondary" href="marcar-confirmacao.php?ref=<?= e(urlencode((string)$marcacao['referencia'])) ?>">Ver marcação</a>
                     </div>

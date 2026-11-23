@@ -416,18 +416,21 @@ final class GatewayStripe implements GatewayPagamento {
             $confirmado = false; $estado = 'cancelado';
             $txRef = (string)($obj['id'] ?? $event['id']);
         } elseif ($type === 'charge.refunded') {
+            $refundCents = $obj['amount_refunded'] ?? null;
+            $refundCurrency = mb_strtolower(trim((string)($obj['currency'] ?? $moedaEvento)));
+            $refundSemDecimais = in_array($refundCurrency, ['bif','clp','djf','gnf','jpy','kmf','krw','mga','pyg','rwf','ugx','vnd','vuv','xaf','xof','xpf'], true);
+            $refundAcumulado = is_numeric($refundCents)
+                ? round(((float)$refundCents) / ($refundSemDecimais ? 1 : 100), 2)
+                : null;
             return ['valido' => true, 'evento' => [
                 'gateway' => 'stripe',
                 'idempotency_key' => 'stripe:event:' . $event['id'],
                 'tipo_evento' => $type,
                 'marcacao_id' => $marcacaoId,
                 'pagamento_id' => $pagamentoId ?: null,
-                'confirmado' => false,
-                'estado' => 'em_processamento',
-                'referencia_transacao' => (string)($obj['payment_intent'] ?? $obj['id'] ?? ''),
-                'gateway_metodo' => 'cartao_online',
-                'valor' => $valorEvento,
-                'moeda' => $moedaEvento !== '' ? $moedaEvento : null,
+                'referencia_transacao' => (string)($obj['payment_intent'] ?? ''),
+                'moeda' => $refundCurrency !== '' ? $refundCurrency : null,
+                'valor_reembolsado_acumulado' => $refundAcumulado,
                 'refund' => true,
             ], 'erro' => ''];
         } else {
@@ -523,8 +526,24 @@ function gateway_stripe_webhook_configurado(PDO $pdo): bool {
  */
 function gateway_pagamento_disponivel(PDO $pdo): bool
 {
-    return gateway_obter($pdo) instanceof GatewayStripe
-        && gateway_stripe_configurado($pdo)
-        && gateway_stripe_publishable_key($pdo) !== ''
-        && gateway_stripe_webhook_configurado($pdo);
+    if (!(gateway_obter($pdo) instanceof GatewayStripe)
+        || !gateway_stripe_configurado($pdo)
+        || !gateway_stripe_webhook_configurado($pdo)) {
+        return false;
+    }
+
+    $secret = getenv('STRIPE_SECRET_KEY');
+    if (!is_string($secret) || trim($secret) === '') {
+        $secret = config_valor_texto($pdo, 'stripe_secret_key', '');
+    }
+    $publishable = gateway_stripe_publishable_key($pdo);
+
+    $modoTeste = str_starts_with($secret, 'sk_test_')
+        && str_starts_with($publishable, 'pk_test_');
+    $modoProducao = str_starts_with($secret, 'sk_live_')
+        && str_starts_with($publishable, 'pk_live_');
+
+    // Evita expor um checkout quando as chaves pública e secreta são de
+    // ambientes diferentes ou não pertencem a um formato Stripe reconhecido.
+    return $modoTeste || $modoProducao;
 }

@@ -2,7 +2,7 @@
 -- ATENÇÃO: esquema base estrutural, sem dados, gerado a partir da BD em 2026-11-18.
 -- Contém DROP TABLE IF EXISTS e destina-se apenas a criar uma base NOVA/vazia.
 -- NÃO executar sobre uma base de dados existente com dados.
--- Para alterações incrementais usar as migrações 001 a 005.
+-- Para alterações incrementais usar as migrações 001 a 007.
 
 /*!40101 SET @OLD_CHARACTER_SET_CLIENT=@@CHARACTER_SET_CLIENT */;
 /*!40101 SET @OLD_CHARACTER_SET_RESULTS=@@CHARACTER_SET_RESULTS */;
