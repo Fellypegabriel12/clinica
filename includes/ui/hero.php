@@ -246,6 +246,7 @@ CSS . '</style>';
     $html .= '>';
 
     if ($temImagens) {
+        $html .= '<div class="hero-next-preview" aria-hidden="true"></div>';
         $html .= '<div class="hero-slides" aria-hidden="true">';
         foreach ($imagens as $i => $img) {
             $html .= '<div class="hero-slide' . ($i === 0 ? ' ativo' : '') . '"'
@@ -260,7 +261,7 @@ CSS . '</style>';
     if ($kicker !== '') {
         $html .= '<span class="hero-corner hero-corner-tl">' . e($kicker) . '</span>';
     }
-    $html .= '<span class="hero-corner hero-corner-br" aria-hidden="true">↓ continua</span>';
+    $html .= '<span class="hero-corner hero-corner-br" aria-hidden="true">&darr; continua</span>';
 
     $html .= '<div class="hero-content">';
     if ($kicker !== '') {
@@ -272,7 +273,7 @@ CSS . '</style>';
     $html .= '<a class="botao botao-hero" href="' . e($botaoUrl) . '" data-magnetic>' . e($botaoTexto) . '</a>';
     if ($telHref !== '') {
         $html .= '<a class="botao botao-telefone" href="' . e($telHref) . '">'
-               . '<span aria-hidden="true">☎</span> ' . e($telefone)
+               . '<span aria-hidden="true">&#9742;</span> ' . e($telefone)
                . '</a>';
     }
     $html .= '</div>';
@@ -281,13 +282,15 @@ CSS . '</style>';
     $html .= '</section>';
 
     if ($temImagens && count($imagens) > 1) {
-        $html .= '<script>(function(){try{if(window.matchMedia&&matchMedia("(prefers-reduced-motion: reduce)").matches)return;'
+        $html .= '<script>(function(){try{'
                . 'var h=document.currentScript&&document.currentScript.previousElementSibling;'
                . 'if(!h||!h.classList||!h.classList.contains("hero-com-slides"))h=document.querySelector(".hero-com-slides");'
                . 'if(!h||h.dataset.slideshowInit==="1")return;h.dataset.slideshowInit="1";'
                . 'var slides=h.querySelectorAll(".hero-slide");if(slides.length<=1)return;var i=0,t=null;'
-               . 'function go(n){slides[i].classList.remove("ativo");i=(n+slides.length)%slides.length;slides[i].classList.add("ativo");}'
+               . 'var previewLayer=h.querySelector(".hero-next-preview");function preview(){var n=(i+1)%slides.length;var bg=slides[n].style.backgroundImage||"none";if(previewLayer)previewLayer.style.backgroundImage=bg;h.style.setProperty("--hero-next-image",bg);}'
+               . 'function go(n){slides[i].classList.remove("ativo");i=(n+slides.length)%slides.length;slides[i].classList.add("ativo");preview();}'
                . 'function start(){if(t!==null)return;t=setInterval(function(){go(i+1);},5000);}function stop(){if(t!==null){clearInterval(t);t=null;}}'
+               . 'preview();if(window.matchMedia&&matchMedia("(prefers-reduced-motion: reduce)").matches)return;'
                . 'document.addEventListener("visibilitychange",function(){document.hidden?stop():start();});start();}catch(e){}})();</script>';
     }
 

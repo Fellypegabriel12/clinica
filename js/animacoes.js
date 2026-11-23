@@ -110,19 +110,36 @@
         document.body.appendChild(cursor);
 
         var x = 0, y = 0, alvoX = 0, alvoY = 0;
+        var frameCursor = null;
+
+        function animarCursor() {
+            frameCursor = null;
+            x += (alvoX - x) * 0.22;
+            y += (alvoY - y) * 0.22;
+            cursor.style.transform = 'translate(' + x + 'px, ' + y + 'px)';
+
+            // Só mantém a animação ativa enquanto o cursor ainda está a aproximar-se.
+            if (Math.abs(alvoX - x) > 0.2 || Math.abs(alvoY - y) > 0.2) {
+                frameCursor = requestAnimationFrame(animarCursor);
+            }
+        }
 
         document.addEventListener('mousemove', function (e) {
             alvoX = e.clientX;
             alvoY = e.clientY;
-        });
+            if (frameCursor === null && !document.hidden) {
+                frameCursor = requestAnimationFrame(animarCursor);
+            }
+        }, { passive: true });
 
-        function animar() {
-            x += (alvoX - x) * 0.18;
-            y += (alvoY - y) * 0.18;
-            cursor.style.transform = 'translate(' + x + 'px, ' + y + 'px)';
-            requestAnimationFrame(animar);
-        }
-        animar();
+        document.addEventListener('visibilitychange', function () {
+            if (document.hidden && frameCursor !== null) {
+                cancelAnimationFrame(frameCursor);
+                frameCursor = null;
+            } else if (!document.hidden && (Math.abs(alvoX - x) > 0.2 || Math.abs(alvoY - y) > 0.2)) {
+                frameCursor = requestAnimationFrame(animarCursor);
+            }
+        });
 
         document.addEventListener('mouseover', function (e) {
             var alvo = e.target.closest('a, button, .botao, input, select, textarea');

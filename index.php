@@ -48,16 +48,35 @@ $dentistas = $stD->fetchAll();
 $galeria = $pdo->query('SELECT caminho, legenda FROM galeria WHERE visivel = 1 ORDER BY ordem, id LIMIT 8')->fetchAll();
 $faq = $pdo->query('SELECT pergunta, resposta FROM perguntas_frequentes WHERE visivel = 1 ORDER BY ordem, id')->fetchAll();
 
-$mapaEmbed = config_valor_texto(
-    $pdo,
-    'mapa_embed_url',
-    'https://www.google.com/maps?q=' . rawurlencode(CLINICA_MORADA) . '&output=embed'
-);
+// Dados públicos da clínica usados também para construir o mapa de recurso.
+$moradaClinica = clinica_dado($pdo, 'clinica_morada', CLINICA_MORADA);
+$mapaEmbed = trim(config_valor_texto($pdo, 'mapa_embed_url', ''));
+$mapaHost = strtolower((string)parse_url($mapaEmbed, PHP_URL_HOST));
+
+// A configuração pode existir na BD mas estar vazia; nesse caso, usa a morada real.
+// Também evita carregar URLs que não sejam de Google Maps dentro do iframe.
+if (
+    $mapaEmbed === ''
+    || !in_array(parse_url($mapaEmbed, PHP_URL_SCHEME), ['https'], true)
+    || !preg_match('/(^|\\.)google\\.(com|pt)$/i', $mapaHost)
+) {
+    $mapaEmbed = 'https://www.google.com/maps?q=' . rawurlencode($moradaClinica) . '&output=embed';
+}
+
+$mapaLink = trim(config_valor_texto($pdo, 'mapa_link', ''));
+$mapaLinkHost = strtolower((string)parse_url($mapaLink, PHP_URL_HOST));
+if (
+    $mapaLink === ''
+    || parse_url($mapaLink, PHP_URL_SCHEME) !== 'https'
+    || !preg_match('/(^|\\.)(google\\.(com|pt)|goo\\.gl)$/i', $mapaLinkHost)
+) {
+    $mapaLink = 'https://www.google.com/maps/search/?api=1&query=' . rawurlencode($moradaClinica);
+}
+
 $clinicaNomeMapa = clinica_dado($pdo, 'clinica_nome', CLINICA_NOME);
 
-// Telefone e morada da clínica (com override da BD)
+// Telefone da clínica (com override da BD)
 $telefoneClinica = clinica_dado($pdo, 'contacto_telefone', CLINICA_TELEFONE);
-$moradaClinica = clinica_dado($pdo, 'clinica_morada', CLINICA_MORADA);
 
 $tituloPagina = 'Início';
 require __DIR__ . '/includes/cabecalho.php';
@@ -219,6 +238,9 @@ require __DIR__ . '/includes/cabecalho.php';
                 referrerpolicy="no-referrer-when-downgrade"
                 title="Localização da <?= e($clinicaNomeMapa) ?>"></iframe>
         </div>
+        <p class="ajuda" style="margin-top:.6rem;">
+            <a href="<?= e($mapaLink) ?>" target="_blank" rel="noopener">Abrir no Google Maps →</a>
+        </p>
     </div>
 </section>
 

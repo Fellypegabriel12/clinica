@@ -124,7 +124,7 @@ if (!headers_sent()) {
              . "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
              . "script-src 'self' 'unsafe-inline' https://js.stripe.com; "
              . "connect-src 'self' https://api.stripe.com https://m.stripe.network https://m.stripe.com; "
-             . "frame-src 'self' https://js.stripe.com https://hooks.stripe.com https://*.stripe.com https://m.stripe.network https://m.stripe.com https://www.google.com https://maps.google.com https://*.google.com;";
+             . "frame-src 'self' https://js.stripe.com https://hooks.stripe.com https://*.stripe.com https://m.stripe.network https://m.stripe.com https://www.google.com https://maps.google.com https://*.google.com https://www.google.pt https://maps.google.pt https://*.google.pt;";
     } else {
         header('Permissions-Policy: geolocation=(), microphone=(), camera=()');
         $csp = "default-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'; "
@@ -133,7 +133,7 @@ if (!headers_sent()) {
              . "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
              . "script-src 'self' 'unsafe-inline'; "
              . "connect-src 'self'; "
-             . "frame-src 'self' https://www.google.com https://maps.google.com https://*.google.com;";
+             . "frame-src 'self' https://www.google.com https://maps.google.com https://*.google.com https://www.google.pt https://maps.google.pt https://*.google.pt;";
     }
     unset($__paginaAtual, $__checkoutStripe);
     header('Content-Security-Policy: ' . $csp);

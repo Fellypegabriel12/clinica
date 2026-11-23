@@ -55,6 +55,7 @@ if ($st->fetchColumn()) {
 
 $dentistaId = (int)$consulta['dentista_id'];
 $duracaoMin = (int)$consulta['duracao_min'];
+$blocoAgendaMin = config_valor($pdo, 'bloco_agenda_min', 30);
 $inicioAtual = utc($consulta['inicio']);
 
 $hoje   = utc($agora->format('Y-m-d') . ' 00:00:00');
@@ -146,6 +147,8 @@ foreach ($slots as $s) {
         $opcoes[] = [
             'inicio' => $s['inicio'],
             'texto'  => $s['hora'] . ' – ' . $fimDT->format('H:i'),
+            'hora'   => $s['hora'],
+            'fim'    => $fimDT->format('H:i'),
         ];
     }
 }
@@ -222,7 +225,24 @@ echo estilos_marcacao();
         <?php if (!$slots): ?>
             <div class="alerta alerta-info">A clínica está fechada neste dia.</div>
         <?php else: ?>
-            <ul class="calendario" aria-label="Horários de <?= e(data_extenso($dia)) ?>">
+            <?php
+            $contagemSlots = array_count_values(array_column($slots, 'estado'));
+            $livres = (int)($contagemSlots['livre'] ?? 0);
+            $ocupados = (int)($contagemSlots['ocupado'] ?? 0);
+            $reservados = (int)($contagemSlots['reservado_outro'] ?? 0);
+            ?>
+            <div class="agenda-titulo">
+                <div>
+                    <h2>Disponibilidade do dia</h2>
+                    <p class="ajuda">Cada bloco representa <?= (int)$blocoAgendaMin ?> minutos da agenda.</p>
+                </div>
+            </div>
+            <div class="agenda-resumo" aria-label="Resumo dos blocos de agenda">
+                <span><strong><?= $livres ?></strong> livres</span>
+                <span><strong><?= $ocupados ?></strong> ocupados</span>
+                <span><strong><?= $reservados ?></strong> reservados</span>
+            </div>
+            <ul class="calendario" aria-label="Disponibilidade de <?= e(data_extenso($dia)) ?>">
                 <?php foreach ($slots as $s): [$simbolo, $texto] = $rotulos[$s['estado']]; ?>
                     <li class="bloco bloco-<?= e($s['estado']) ?>">
                         <strong><?= e($s['hora']) ?></strong>
@@ -244,25 +264,49 @@ echo estilos_marcacao();
                 <?= csrf_campo() ?>
                 <input type="hidden" name="data" value="<?= e($dia->format('Y-m-d')) ?>">
 
-                <div class="campo">
-                    <label for="novo_inicio">Nova hora <span class="obrigatorio" aria-hidden="true">*</span></label>
-                    <select id="novo_inicio" name="novo_inicio" required>
-                        <option value="">— escolher —</option>
-                        <?php foreach ($opcoes as $o): ?>
-                            <option value="<?= e($o['inicio']) ?>" <?= ($_POST['novo_inicio'] ?? '') === $o['inicio'] ? 'selected' : '' ?>>
-                                <?= e($o['texto']) ?>
-                            </option>
-                        <?php endforeach; ?>
-                    </select>
-                </div>
+                <fieldset class="horario-pessoa">
+                    <legend>Escolhe a nova hora</legend>
+                    <p class="horario-pessoa-ajuda">
+                        Consulta de <?= e(formatar_duracao($duracaoMin)) ?>. Cada opção mostra a hora de início e de fim.
+                    </p>
+                    <?php
+                    $opcoesPorPeriodo = ['Manhã' => [], 'Tarde' => [], 'Final do dia' => []];
+                    foreach ($opcoes as $opcao) {
+                        $horaOpcao = (int)substr($opcao['inicio'], 11, 2);
+                        $periodo = $horaOpcao < 12 ? 'Manhã' : ($horaOpcao < 18 ? 'Tarde' : 'Final do dia');
+                        $opcoesPorPeriodo[$periodo][] = $opcao;
+                    }
+                    ?>
+                    <?php foreach ($opcoesPorPeriodo as $nomePeriodo => $opcoesPeriodo): ?>
+                        <?php if ($opcoesPeriodo): ?>
+                            <div class="horario-grupo">
+                                <h3><?= e($nomePeriodo) ?></h3>
+                                <div class="horario-opcoes">
+                                    <?php foreach ($opcoesPeriodo as $o): ?>
+                                        <label class="horario-opcao">
+                                            <input type="radio" name="novo_inicio" value="<?= e($o['inicio']) ?>"
+                                                <?= ($_POST['novo_inicio'] ?? '') === $o['inicio'] ? 'checked' : '' ?> required>
+                                            <span class="horario-opcao-conteudo">
+                                                <strong><?= e($o['hora']) ?></strong>
+                                                <small>Termina às <?= e($o['fim']) ?></small>
+                                            </span>
+                                        </label>
+                                    <?php endforeach; ?>
+                                </div>
+                            </div>
+                        <?php endif; ?>
+                    <?php endforeach; ?>
+                </fieldset>
 
                 <div class="campo">
                     <label for="motivo">Motivo (opcional)</label>
                     <input type="text" id="motivo" name="motivo" maxlength="255" value="<?= e($motivoForm) ?>">
                 </div>
 
-                <button type="submit" class="botao">Enviar pedido de alteração</button>
-                <a class="botao botao-secundario" href="minhas-marcacoes.php">Cancelar</a>
+                <div class="horario-acoes">
+                    <button type="submit" class="botao">Enviar pedido de alteração</button>
+                    <a class="botao botao-secundario" href="minhas-marcacoes.php">Cancelar</a>
+                </div>
             </form>
         </section>
     <?php elseif ($slots): ?>

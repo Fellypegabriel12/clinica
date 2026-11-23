@@ -2521,3 +2521,159 @@ a.blog-card .blog-card-date {
 .artigo-meta .etiqueta {
     margin: 0;
 }
+/* =========================================================
+   Refinamento visual global — clínica
+   Camada de acabamento sobre os componentes existentes.
+   Mantém a estrutura e as funcionalidades atuais.
+   ========================================================= */
+:root {
+    --raio-sm: 9px;
+    --raio-md: 16px;
+    --sombra-1: 0 2px 8px rgba(28,43,47,.045);
+    --sombra-2: 0 10px 28px rgba(28,43,47,.09);
+    --sombra-3: 0 20px 48px rgba(28,43,47,.13);
+}
+.conteudo { max-width: 1240px; padding-top: clamp(1.5rem,3vw,2.75rem); }
+.topo { box-shadow: 0 4px 24px rgba(28,43,47,.045); }
+.topo-conteudo { max-width: 1320px; min-height: 76px; }
+.topo nav a, .topo nav .menu-dropdown-botao { transition: color .2s ease, background .2s ease, border-color .2s ease; }
+.cartao {
+    border-radius: var(--raio-md);
+    box-shadow: 0 4px 18px rgba(28,43,47,.045);
+    transition: transform .22s ease, border-color .22s ease, box-shadow .22s ease;
+}
+.cartao:hover { transform: translateY(-2px); box-shadow: var(--sombra-2); }
+.botao {
+    min-height: 42px;
+    border-radius: 10px;
+    font-weight: 600;
+    letter-spacing: .005em;
+    box-shadow: 0 3px 10px rgba(31,78,95,.12);
+    transition: transform .18s ease, box-shadow .18s ease, background .18s ease, border-color .18s ease;
+}
+.botao:hover { transform: translateY(-1px); }
+.botao:active { transform: translateY(0); }
+.botao-secundario, .botao-perigo { box-shadow: none; }
+.campo input[type="text"], .campo input[type="email"], .campo input[type="tel"],
+.campo input[type="password"], .campo input[type="number"], .campo input[type="date"],
+.campo input[type="time"], .campo input[type="datetime-local"], .campo select,
+.campo textarea, select, textarea {
+    min-height: 44px;
+    border-radius: 10px;
+}
+.faq { border-radius: 12px; padding: 1rem 1.2rem; }
+.galeria img { border-radius: 14px; }
+.hero-editorial {
+    box-shadow: none !important;
+    overflow: visible !important;
+    border: 0 !important;
+    border-radius: 22px !important;
+    isolation: isolate;
+    margin: 0 auto 1.2rem;
+}
+.hero-editorial::before {
+    content: "";
+    position: absolute;
+    z-index: -2;
+    inset: 14px -14px -14px 14px;
+    border-radius: 22px;
+    background-image: var(--hero-next-image, linear-gradient(135deg,#1f4e5f,#7fb8a4));
+    background-size: cover;
+    background-position: center;
+    box-shadow: 0 18px 38px rgba(15,43,50,.2);
+    filter: saturate(.9);
+    transition: background-image .7s ease, transform .7s ease;
+}
+.hero-editorial .hero-slides,
+.hero-editorial .hero-overlay { border-radius: 22px; overflow: hidden; }
+.hero-editorial .hero-content { padding-top: clamp(4.5rem,8vw,7rem); padding-bottom: clamp(4.5rem,8vw,7rem); }
+.hero-editorial .hero-kicker { letter-spacing: .16em; }
+.hero-editorial h1 { max-width: 850px; margin-left: auto; margin-right: auto; }
+.hero-editorial .hero-overlay {
+    background: linear-gradient(105deg,rgba(9,27,34,.76),rgba(9,27,34,.32) 72%,rgba(9,27,34,.48));
+}
+.hero-slide { transform: scale(1.025); transition: opacity 1.2s ease, transform 6s ease; }
+.hero-slide.ativo { transform: scale(1); }
+.hero-editorial .hero-acoes .botao-hero { border-radius: 12px; }
+.calendario {
+    gap: .65rem;
+    grid-template-columns: repeat(auto-fill,minmax(145px,1fr));
+    margin: 1.25rem 0 1.5rem;
+}
+.calendario .bloco {
+    min-height: 88px;
+    justify-content: center;
+    gap: .4rem;
+    padding: 1rem;
+    border-radius: 14px;
+    border: 1px solid var(--borda);
+    box-shadow: 0 3px 12px rgba(28,43,47,.035);
+    transition: transform .18s ease, box-shadow .18s ease;
+}
+.calendario .bloco:hover { transform: translateY(-2px); box-shadow: var(--sombra-2); }
+.calendario .bloco strong { font-size: 1.15rem; letter-spacing: -.02em; }
+.legenda { gap: .55rem; }
+.legenda .bloco { border-radius: 999px; padding: .45rem .8rem; }
+.navdia {
+    padding: 1rem;
+    border: 1px solid var(--borda);
+    border-radius: 14px;
+    background: var(--superficie);
+    box-shadow: var(--sombra-1);
+    gap: .8rem;
+}
+.navdia form { gap: .55rem; }
+@media (max-width: 720px) {
+    .hero-editorial { margin-right: 8px; }
+    .hero-editorial::before { inset: 10px -8px -10px 8px; }
+    .conteudo { padding-left: 1rem; padding-right: 1rem; }
+    .calendario { grid-template-columns: repeat(2,minmax(0,1fr)); }
+}
+@media (prefers-reduced-motion: reduce) {
+    .cartao, .botao, .calendario .bloco, .hero-slide { transition: none !important; }
+    .cartao:hover, .botao:hover, .calendario .bloco:hover { transform: none; }
+}
+
+
+/* Hero: a fotografia seguinte fica numa camada própria atrás da fotografia atual. */
+.hero-editorial { isolation: isolate; }
+.hero-editorial::before { z-index: 0 !important; }
+.hero-editorial .hero-slides { z-index: 1 !important; }
+.hero-editorial .hero-overlay { z-index: 2 !important; }
+.hero-editorial .hero-content { position: relative; z-index: 3 !important; }
+.hero-editorial .hero-corner { z-index: 4; }
+.hero-editorial::before {
+    transition: transform .9s cubic-bezier(.2,.7,.2,1), filter .9s ease;
+    transform: translateY(0) scale(1);
+}
+.hero-editorial:hover::before { transform: translateY(3px) scale(1.012); }
+@media (prefers-reduced-motion: reduce) {
+    .hero-editorial::before { transition: none !important; }
+    .hero-editorial:hover::before { transform: none; }
+}
+
+/* Camada real da próxima fotografia: não depende de pseudo-elementos. */
+.hero-editorial { position: relative; isolation: isolate; }
+.hero-editorial .hero-next-preview {
+    position: absolute;
+    inset: 14px -14px -14px 14px;
+    z-index: 0;
+    border-radius: 22px;
+    background-image: var(--hero-next-image, linear-gradient(135deg,#1f4e5f,#7fb8a4));
+    background-size: cover;
+    background-position: center;
+    box-shadow: 0 18px 38px rgba(15,43,50,.2);
+    filter: saturate(.9);
+    transition: background-image .5s ease, transform .8s ease;
+    pointer-events: none;
+}
+.hero-editorial .hero-slides { z-index: 1 !important; }
+.hero-editorial .hero-overlay { z-index: 2 !important; }
+.hero-editorial .hero-content { position: relative; z-index: 3 !important; }
+.hero-editorial .hero-corner { z-index: 4; }
+@media (max-width: 720px) {
+    .hero-editorial .hero-next-preview { inset: 10px -8px -10px 8px; }
+}
+@media (prefers-reduced-motion: reduce) {
+    .hero-editorial .hero-next-preview { transition: none !important; }
+}

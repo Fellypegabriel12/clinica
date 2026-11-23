@@ -15,12 +15,26 @@ foreach ($linhas as $h) {
 }
 
 $moradaClinica = clinica_dado($pdo, 'clinica_morada', CLINICA_MORADA);
-$mapaEmbed = config_valor_texto(
-    $pdo,
-    'mapa_embed_url',
-    'https://www.google.com/maps?q=' . rawurlencode($moradaClinica) . '&output=embed'
-);
-$mapaLink  = config_valor_texto($pdo, 'mapa_link', '');
+$mapaEmbed = trim(config_valor_texto($pdo, 'mapa_embed_url', ''));
+$mapaHost = strtolower((string)parse_url($mapaEmbed, PHP_URL_HOST));
+
+if (
+    $mapaEmbed === ''
+    || !in_array(parse_url($mapaEmbed, PHP_URL_SCHEME), ['https'], true)
+    || !preg_match('/(^|\\.)google\\.(com|pt)$/i', $mapaHost)
+) {
+    $mapaEmbed = 'https://www.google.com/maps?q=' . rawurlencode($moradaClinica) . '&output=embed';
+}
+
+$mapaLink = trim(config_valor_texto($pdo, 'mapa_link', ''));
+$mapaLinkHost = strtolower((string)parse_url($mapaLink, PHP_URL_HOST));
+if (
+    $mapaLink === ''
+    || parse_url($mapaLink, PHP_URL_SCHEME) !== 'https'
+    || !preg_match('/(^|\\.)(google\\.(com|pt)|goo\\.gl)$/i', $mapaLinkHost)
+) {
+    $mapaLink = 'https://www.google.com/maps/search/?api=1&query=' . rawurlencode($moradaClinica);
+}
 
 $contactoEmail    = config_valor_texto($pdo, 'contacto_email', CLINICA_EMAIL);
 $contactoTelefone = config_valor_texto($pdo, 'contacto_telefone', CLINICA_TELEFONE);

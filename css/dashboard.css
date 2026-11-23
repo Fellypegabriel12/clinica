@@ -1236,3 +1236,50 @@ a.dash-list-row:focus-visible {
     background-color: var(--erro);
     border-color: var(--erro);
 }
+/* =========================================================
+   Refinamento visual — área pessoal e painéis de gestão
+   ========================================================= */
+.dash-root { max-width: 1240px; }
+.dash-page-top {
+    padding: clamp(1.25rem,3vw,2rem);
+    margin-bottom: 1.5rem;
+    border: 1px solid var(--borda);
+    border-radius: 18px;
+    background: linear-gradient(125deg,var(--superficie),var(--superficie-alt));
+    box-shadow: 0 8px 28px rgba(28,43,47,.045);
+}
+.dash-page-top h1 { letter-spacing: -.035em; }
+.dash-welcome {
+    border-radius: 20px;
+    padding: clamp(1.5rem,4vw,2.6rem);
+    box-shadow: 0 16px 38px rgba(12,39,48,.13);
+}
+.dash-welcome h2 { letter-spacing: -.035em; }
+.dash-welcome-cta { border-radius: 10px; }
+.dash-stat-grid { gap: .9rem; }
+.dash-stat-grid > a {
+    border-radius: 15px;
+    padding: 1.25rem;
+    border-color: var(--borda);
+    box-shadow: 0 4px 16px rgba(28,43,47,.04);
+}
+.dash-stat-grid > a:hover { transform: translateY(-3px); box-shadow: var(--sombra-2); }
+.dash-section-title { margin-top: 2.4rem; margin-bottom: 1rem; }
+.dash-list { gap: .7rem; }
+.dash-list-row {
+    border-radius: 13px;
+    border: 1px solid var(--borda);
+    background: var(--superficie);
+    padding: 1rem 1.15rem;
+}
+.dash-empty, .dash-frame, .dash-info-panel {
+    border-radius: 16px;
+}
+.dash-root .alerta { border-radius: 12px; }
+.dash-filter-tabs button { border-radius: 999px; }
+.dash-search { border-radius: 10px; }
+@media (max-width: 640px) {
+    .dash-page-top { border-radius: 14px; }
+    .dash-stat-grid { grid-template-columns: repeat(2,minmax(0,1fr)); }
+    .dash-stat-grid > a { padding: 1rem; }
+}

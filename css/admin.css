@@ -625,3 +625,50 @@
         color: HighlightText;
     }
 }
+
+/* =========================================================
+   Refinamento visual — administração
+   Aplicado a todas as páginas da consola.
+   ========================================================= */
+.adm-subnav {
+    border-bottom-color: var(--borda);
+    box-shadow: 0 3px 14px rgba(28,43,47,.035);
+}
+.adm-subnav a { padding-top: .95rem; padding-bottom: .95rem; }
+.adm-subnav a[aria-current="page"] { position: relative; }
+.adm-pending, .adm-clear {
+    border-radius: 18px;
+    box-shadow: 0 8px 28px rgba(28,43,47,.055);
+}
+.adm-pending { padding: clamp(1.25rem,3vw,2rem); }
+.adm-pending-item, .adm-section-card, .adm-feature-card, .adm-info-card {
+    border-radius: 15px;
+    transition: transform .2s ease, box-shadow .2s ease, border-color .2s ease;
+}
+.adm-pending-item:hover, .adm-section-card:hover, .adm-feature-card:hover, .adm-info-card:hover {
+    transform: translateY(-3px);
+    box-shadow: var(--sombra-2);
+}
+.adm-section-card { padding: 1.35rem; }
+.adm-info-card { padding: 1.2rem; }
+.adm-root .cartao, .adm-root .filtros, .adm-root fieldset.campo {
+    border-radius: 15px;
+}
+.adm-root .tabela-scroll {
+    border: 1px solid var(--borda);
+    border-radius: 14px;
+    background: var(--superficie);
+}
+.adm-root .tabela th { padding-top: .9rem; padding-bottom: .9rem; }
+.adm-root .tabela td { padding-top: .85rem; padding-bottom: .85rem; }
+.adm-root .botao, .adm-root button.botao { border-radius: 10px; }
+.adm-root .alerta { border-radius: 12px; }
+.adm-root input, .adm-root select, .adm-root textarea { border-radius: 10px; }
+@media (max-width: 720px) {
+    .adm-subnav-inner { padding-left: 1rem; padding-right: 1rem; }
+    .adm-pending, .adm-clear { border-radius: 14px; }
+}
+@media (prefers-reduced-motion: reduce) {
+    .adm-pending-item, .adm-section-card, .adm-feature-card, .adm-info-card { transition: none !important; }
+    .adm-pending-item:hover, .adm-section-card:hover, .adm-feature-card:hover, .adm-info-card:hover { transform: none; }
+}
