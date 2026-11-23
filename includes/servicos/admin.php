@@ -294,6 +294,7 @@ function admin_seccoes(): array
                 'utilizadores.php',
                 'utilizadores-novo.php',
                 'configuracoes.php',
+                'importar-dados.php',
                 'editor-site.php',
                 'auditoria.php',
             ],
@@ -314,6 +315,12 @@ function admin_seccoes(): array
                     'titulo'    => 'Configurações',
                     'descricao' => 'Identidade, contactos, pagamentos, emails e definições da clínica.',
                     'url'       => 'admin/configuracoes.php',
+                    'papeis'    => ['admin'],
+                ],
+                [
+                    'titulo'    => 'Importar dados de outro sistema',
+                    'descricao' => 'Analisa exportações CSV e prepara a migração de dados de sistemas antigos, sem alterar os registos atuais.',
+                    'url'       => 'admin/importar-dados.php',
                     'papeis'    => ['admin'],
                 ],
                 [

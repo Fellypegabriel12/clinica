@@ -173,6 +173,12 @@ Só depois de passar os testes de sandbox e de a clínica completar a verificaç
 - Plano de reversão e responsável pelo corte definidos.
 - Aprovação final assinada pelos responsáveis da clínica.
 
+## Implementação inicial já disponível no projeto
+
+A página `admin/importar-dados.php` disponibiliza uma pré-visualização segura de CSV para administradores. A primeira versão aceita ficheiros até 5 MB e 10 000 registos, deteta separadores comuns e codificações UTF-8/UTF-16/Windows-1252, mostra até 10 linhas de amostra e assinala alguns problemas estruturais. A análise é read-only: não grava pacientes, utilizadores, consultas ou pagamentos. Existem testes automatizados em `tests/test_importacao_csv.php`.
+
+Esta ferramenta ainda não faz mapeamento de campos, comparação com os registos existentes, staging persistente ou importação. Também não lê XLS/XLSX, XML ou backups SQL. A ligação ao sistema de origem continua dependente da descoberta e documentação desse sistema.
+
 ## Informação que falta para avançar para a integração real
 
 - Software atual, fabricante e versão.

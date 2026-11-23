@@ -17,6 +17,7 @@
 - `marcacao.php`: fluxo e regras de marcação (carregamento de contexto, disponibilidade, reservas, validações).
 - `pagamentos.php` + `gateway.php`: modelo de pagamentos, presenciais/online, abstração de gateway (scaffold), estados e idempotência; callbacks devem ser **autenticados e idempotentes** (ver `pagamento-webhook.php`).
 - `gestao.php`, `conta.php`, `stock.php`, `consulta-preparacao.php`: suporte a administração, área pessoal, stock e conteúdos/componentes operacionais.
+- `importacao.php`: leitura e pré-validação read-only de exportações CSV, com deteção de delimitador/codificação, cabeçalhos repetidos, linhas irregulares, emails repetidos no próprio ficheiro e colunas potencialmente clínicas. Não grava os registos importados.
 
 ### UI (`includes/ui/`)
 - `cabecalho.php`/`rodape.php`: layout comum, navegação, tema, CSRF meta, identidade (logo/favicon/nome configuráveis), scripts de UI.
@@ -24,6 +25,7 @@
 
 ### Entry points
 - Páginas na raiz e `admin/*.php` compõem controladores/páginas. Incluem núcleo/serviços/UI conforme necessário. `cabecalho.php` define `<base href="<?= BASE_URL ?>">`, o que estabiliza muitos links relativos no HTML.
+- `admin/importar-dados.php`: ferramenta de pré-visualização CSV exclusiva de administradores; não executa importações para as tabelas operacionais.
 
 ## Fluxos críticos
 - **Autenticação:** sessão + revalidação de utilizador/ativo/papel; redirecionamentos via `redirecionar()` (prefixa `BASE_URL` para caminhos relativos).
