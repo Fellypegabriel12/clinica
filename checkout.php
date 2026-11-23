@@ -275,7 +275,7 @@ require __DIR__ . '/includes/cabecalho.php';
                     <div class="checkout-footer">
                         <span>Processamento seguro por <strong>Stripe</strong></span>
                         <span>·</span>
-                        <a href="termos.php">Termos</a>
+                        <a href="aviso-legal.php">Aviso legal</a>
                         <a href="privacidade.php">Privacidade</a>
                     </div>
                 </form>

@@ -156,8 +156,7 @@ function mostrar_consulta(array $c, array $tratDe, array $pedidoDe, array $avali
                         <?= csrf_campo() ?>
                         <input type="hidden" name="acao" value="cancelar">
                         <input type="hidden" name="consulta" value="<?= (int)$c['id'] ?>">
-                        <button type="submit" class="dash-list-action dash-action-disabled"
-                                style="background:transparent;border-color:var(--erro);color:var(--erro);">
+                        <button type="submit" class="dash-list-action dash-action-cancelar">
                             Cancelar
                         </button>
                     </form>

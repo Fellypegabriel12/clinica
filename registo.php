@@ -174,8 +174,7 @@ require __DIR__ . '/includes/cabecalho.php';
         </form>
 
         <div class="auth-links">
-            <span>Já tens conta?</span>
-            <a href="login.php">Iniciar sessão</a>
+            <a href="login.php" class="auth-link-completo">Já tens conta? Iniciar sessão</a>
         </div>
     </div>
 
