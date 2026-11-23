@@ -32,7 +32,10 @@
 - **Uploads:** validação de tipo/tamanho; armazenamento em `uploads/` com proteções `.htaccess`. CVs com acesso controlado.
 
 ## Dados e migrações
-- Esquema base + alterações aditivas em `migracoes/*.sql` (atualmente até à migração 008, que cria o livro de reembolsos, o registo idempotente dos eventos de gateway e a gestão segura de cartões guardados na Stripe). Evitar mudanças destrutivas sem backup.
+- Esquema base + alterações aditivas em `migracoes/*.sql` (atualmente até à migração 008, que cria o livro de reembolsos, o registo idempotente dos eventos de gateway e a gestão de cartões guardados na Stripe). Evitar mudanças destrutivas sem backup.
+- O levantamento técnico das integrações de pagamentos existentes está em `docs/ESTADO-ATUAL-INTEGRACOES.md`.
+- O processo de descoberta, importação faseada, reconciliação e transição de sistemas antigos está especificado em `docs/PLANO-MIGRACAO-SISTEMA-LEGADO.md`.
+- Não desenvolver conectores para um ERP, gateway ou programa de faturação sem identificar primeiro o fornecedor/versão, obter documentação e testar com dados de amostra anonimizados.
 
 ## Segurança (princípios aplicados)
 - Escape de output (`e()`), prepared statements (na maioria dos acessos), CSRF em formulários, RBAC em admin, proteções `.htaccess`, validação de uploads, segredo de webhook/config sensível tratada com cuidado na UI de configurações.
