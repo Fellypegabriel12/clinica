@@ -177,9 +177,11 @@ Só depois de passar os testes de sandbox e de a clínica completar a verificaç
 
 A página `admin/importar-dados.php` disponibiliza uma pré-visualização read-only para administradores. Aceita CSV até 5 MB e 10 000 registos, deteta delimitadores e codificações UTF-8/UTF-16/Windows-1252, e mostra uma amostra limitada.
 
-O sistema já sugere o mapeamento de cabeçalhos para nome, email, telemóvel, data de nascimento e número SNS. Faz validação básica dos campos, sinaliza possíveis duplicados no próprio ficheiro e compara email, telefone normalizado e nome+data de nascimento com registos existentes. Estas chaves são apenas pistas de revisão — um telefone pode ser partilhado e nomes/datas podem coincidir — e nunca provocam fusões automáticas.
+O sistema já sugere o mapeamento de cabeçalhos para nome, email, telemóvel, data de nascimento e número SNS e permite corrigir manualmente cada associação. Faz validação básica dos campos, sinaliza possíveis duplicados no próprio ficheiro e compara email, telefone normalizado e nome+data de nascimento com registos existentes. Estas chaves são apenas pistas de revisão — um telefone pode ser partilhado e nomes/datas podem coincidir — e nunca provocam fusões automáticas.
 
-A ferramenta não grava pacientes, utilizadores, consultas ou pagamentos. Ainda faltam mapeamento manual, staging persistente e protegido, regras de associação, importação idempotente em lotes e relatório de reconciliação. Também não lê XLS/XLSX, XML ou backups SQL. Existem 17 testes automatizados em `tests/test_importacao_csv.php`, incluindo a comparação de email, telefone e nome/data com uma base SQLite isolada. A ligação ao sistema de origem continua dependente da descoberta e documentação desse sistema.
+A simulação apresenta registos válidos/inválidos, correspondências e potenciais novos sem correspondência pelas regras testadas, sem afirmar que estes últimos são definitivamente novos. A amostra mascara nomes, emails, telefones, datas completas, identificadores e colunas clínicas/notas reconhecidas.
+
+A ferramenta não grava pacientes, utilizadores, consultas ou pagamentos e não guarda o CSV depois do pedido. Ainda faltam a revisão individual dos conflitos, a importação idempotente em lotes, o relatório de reconciliação, a importação de relações/documentos e eventuais conectores externos. Também não lê XLS/XLSX, XML ou backups SQL. Existem 28 testes automatizados em `tests/test_importacao_csv.php`, incluindo a comparação de email, telefone e nome/data com uma base SQLite isolada. A ligação ao sistema de origem continua dependente da descoberta e documentação desse sistema.
 
 ## Informação que falta para avançar para a integração real
 

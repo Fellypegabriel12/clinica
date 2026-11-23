@@ -55,9 +55,11 @@ Sem estes elementos, qualquer conector específico ou promessa de importação i
 ## 5. Estado de implementação
 
 - A página `admin/importar-dados.php` está disponível apenas para administradores e aceita CSV até 5 MB/10 000 registos.
-- O serviço `includes/servicos/importacao.php` deteta delimitadores e codificações comuns, sugere mapeamento de colunas para nome, email, telefone, data de nascimento e número SNS, valida formatos básicos e sinaliza possíveis duplicados dentro do próprio ficheiro.
+- O serviço `includes/servicos/importacao.php` deteta delimitadores e codificações comuns, sugere mapeamento de colunas para nome, email, telefone, data de nascimento e número SNS, permite corrigir o mapeamento manualmente e valida formatos básicos.
 - A pré-visualização compara emails exatos com fichas/contas de paciente, telefones após retirar separadores comuns e combinações exatas de nome + data de nascimento com fichas locais. Estas correspondências são apenas pistas; não se fundem pessoas automaticamente. Não há correspondência por documentos.
-- O relatório só apresenta contagens e motivos; os valores dos registos completos não são guardados nem enviados para o HTML fora da amostra de pré-visualização. A análise não cria, altera, funde ou apaga pacientes/contas.
-- Existem 17 testes automatizados para parser, codificações, mapeamento, validação e comparação de email/telefone/nome-data com uma base SQLite de teste.
+- A simulação apresenta registos válidos/inválidos, duplicados no ficheiro, possíveis correspondências e potenciais novos sem correspondência pelas regras testadas. Estes últimos não são garantia de novos pacientes.
+- A amostra oculta nomes, emails, telefones, datas completas, identificadores e colunas clínicas/notas reconhecidas. Os registos originais só permanecem em memória durante o pedido; não há staging persistente nem gravação de pacientes.
+- A análise não cria, altera, funde ou apaga pacientes/contas.
+- Existem 28 testes automatizados para parser, codificações, mapeamento automático/manual, validação, comparação com uma base SQLite de teste e mascaramento da amostra.
 
-Continuam por implementar: mapeamento manual, comparação por chaves adicionais, staging persistente e protegido, importação em lotes, prevenção de duplicação entre execuções, importação de relações/documentos e conectores diretos a software externo. Nenhum dado real de pacientes foi importado. A integração real depende de identificar os sistemas e obter documentação/credenciais de teste fornecidas pela empresa.
+Continuam por implementar: staging persistente e protegido (se vier a ser necessário), revisão individual de conflitos, importação idempotente em lotes, prevenção de duplicação entre execuções, importação de relações/documentos e conectores diretos a software externo. Nenhum dado real de pacientes foi importado. A integração real depende de identificar os sistemas e obter documentação/credenciais de teste fornecidas pela empresa.

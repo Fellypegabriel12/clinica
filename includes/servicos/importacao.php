@@ -122,10 +122,11 @@ function importacao_detectar_delimitador(string $primeiraLinha): array
  *   ok:bool,erro?:string,avisos?:array,delimitador?:string,encoding?:string,
  *   cabecalhos?:array,linhas?:int,linhas_vazias?:int,linhas_irregulares?:int,
  *   duplicados_email?:int,colunas_sensiveis?:array,amostra?:array,
- *   mapeamento_sugerido?:array,registos_mapeados?:array
+ *   mapeamento_sugerido?:array,mapeamento_efetivo?:array,modo_mapeamento?:string,
+ *   registos_mapeados?:array
  * }
  */
-function importacao_analisar_csv(string $conteudo): array
+function importacao_analisar_csv(string $conteudo, ?array $mapeamentoManual = null): array
 {
     if ($conteudo === '') {
         return ['ok' => false, 'erro' => 'O ficheiro está vazio.'];
@@ -203,21 +204,57 @@ function importacao_analisar_csv(string $conteudo): array
     }
 
     $mapeamentoSugerido = importacao_sugerir_mapeamento_pacientes($cabecalhos);
+    $camposPermitidos = [
+        'nome_completo',
+        'email',
+        'telemovel',
+        'data_nascimento',
+        'numero_utente_sns',
+    ];
+    $mapeamentoEfetivo = $mapeamentoSugerido;
+    $modoMapeamento = 'automatico';
+
+    if ($mapeamentoManual !== null) {
+        $mapeamentoEfetivo = [];
+        $cabecalhosUsadosManual = [];
+        foreach ($mapeamentoManual as $campo => $cabecalhoEscolhido) {
+            if (!in_array((string)$campo, $camposPermitidos, true)) {
+                fclose($stream);
+                return ['ok' => false, 'erro' => 'O mapeamento contém um campo de destino não permitido.'];
+            }
+            $cabecalhoEscolhido = trim((string)$cabecalhoEscolhido);
+            if ($cabecalhoEscolhido === '') {
+                continue;
+            }
+            $indiceEscolhido = array_search($cabecalhoEscolhido, $cabecalhos, true);
+            if ($indiceEscolhido === false) {
+                fclose($stream);
+                return ['ok' => false, 'erro' => 'Uma das colunas escolhidas já não existe no ficheiro. Volta a selecionar o CSV.'];
+            }
+            if (isset($cabecalhosUsadosManual[$indiceEscolhido])) {
+                fclose($stream);
+                return ['ok' => false, 'erro' => 'A mesma coluna de origem não pode ser associada a dois campos diferentes.'];
+            }
+            $cabecalhosUsadosManual[$indiceEscolhido] = true;
+            $mapeamentoEfetivo[(string)$campo] = $cabecalhoEscolhido;
+        }
+
+        if (empty($mapeamentoEfetivo['nome_completo'])) {
+            fclose($stream);
+            return ['ok' => false, 'erro' => 'É obrigatório associar uma coluna ao campo Nome completo.'];
+        }
+        $modoMapeamento = 'manual';
+    }
+
     $indicesMapeados = [];
-    foreach ($mapeamentoSugerido as $campo => $cabecalho) {
+    foreach ($mapeamentoEfetivo as $campo => $cabecalho) {
         $indice = array_search($cabecalho, $cabecalhos, true);
         if ($indice !== false) {
             $indicesMapeados[$campo] = (int)$indice;
         }
     }
 
-    $emailIndice = null;
-    foreach ($normalizados as $nome => $indice) {
-        if (in_array($nome, ['email', 'e_mail', 'correio_eletronico'], true)) {
-            $emailIndice = $indice;
-            break;
-        }
-    }
+    $emailIndice = $indicesMapeados['email'] ?? null;
 
     $sensivelPalavras = [
         'diagnostico', 'anamnese', 'processo_clinico', 'observacao_clinica',
@@ -283,7 +320,7 @@ function importacao_analisar_csv(string $conteudo): array
                 fclose($stream);
                 return ['ok' => false, 'erro' => 'Foi encontrada uma célula demasiado grande (mais de 20 KB). Verifica se o CSV inclui anexos codificados ou conteúdo indevido.'];
             }
-            $linha[$cabecalho] = mb_substr(trim($valor), 0, 180);
+            $linha[$cabecalho] = importacao_mascarar_valor_amostra($cabecalho, trim($valor), $colunasSensiveis);
         }
 
         $registoMapeado = [];
@@ -336,6 +373,8 @@ function importacao_analisar_csv(string $conteudo): array
         'avisos' => $avisos,
         'amostra' => $amostra,
         'mapeamento_sugerido' => $mapeamentoSugerido,
+        'mapeamento_efetivo' => $mapeamentoEfetivo,
+        'modo_mapeamento' => $modoMapeamento,
         'registos_mapeados' => $registosMapeados,
     ];
 }
@@ -400,8 +439,8 @@ function importacao_emails_existentes(PDO $pdo, array $emails): array
 }
 
 /**
- * Valida registos de pacientes usando o mapeamento automático e compara
- * emails exatos com a base atual. Não cria, altera, funde nem apaga dados.
+ * Valida registos de pacientes usando o mapeamento efetivo e compara
+ * emails, telefones e nome/data com a base atual. Não altera dados.
  *
  * @return array<string,mixed>
  */
@@ -420,6 +459,7 @@ function importacao_validar_registos_pacientes(PDO $pdo, array $registos, array 
             'correspondencias_telefone_base_dados' => 0,
             'correspondencias_nome_data_base_dados' => 0,
             'total_correspondencias_base_dados' => 0,
+            'potenciais_novos_sem_correspondencia' => 0,
             'sem_email' => $total,
             'comparacao_base_dados_disponivel' => true,
             'amostra_revisao' => [],
@@ -428,6 +468,7 @@ function importacao_validar_registos_pacientes(PDO $pdo, array $registos, array 
 
     $validos = 0;
     $invalidos = 0;
+    $linhasValidas = [];
     $semEmail = 0;
     $emailsDoFicheiro = [];
     $chavesVistas = [];
@@ -503,6 +544,7 @@ function importacao_validar_registos_pacientes(PDO $pdo, array $registos, array 
 
         if ($problemas === []) {
             $validos++;
+            $linhasValidas[$indice] = true;
         } else {
             $invalidos++;
             if (count($linhasRevisao) < 20) {
@@ -527,6 +569,16 @@ function importacao_validar_registos_pacientes(PDO $pdo, array $registos, array 
     }
 
     $comparacao = importacao_comparar_registos_pacientes($pdo, $registos);
+    $indicesComCorrespondencia = $comparacao['indices_correspondencia'] ?? [];
+    $potenciaisNovos = null;
+    if (!empty($comparacao['ok'])) {
+        $potenciaisNovos = 0;
+        foreach ($linhasValidas as $indice => $_) {
+            if (!isset($indicesComCorrespondencia[$indice])) {
+                $potenciaisNovos++;
+            }
+        }
+    }
 
     return [
         'mapeamento_completo' => true,
@@ -539,6 +591,7 @@ function importacao_validar_registos_pacientes(PDO $pdo, array $registos, array 
         'correspondencias_telefone_base_dados' => (int)($comparacao['por_telefone'] ?? 0),
         'correspondencias_nome_data_base_dados' => (int)($comparacao['por_nome_data'] ?? 0),
         'total_correspondencias_base_dados' => (int)($comparacao['total'] ?? 0),
+        'potenciais_novos_sem_correspondencia' => $potenciaisNovos,
         'sem_email' => $semEmail,
         'comparacao_base_dados_disponivel' => !empty($comparacao['ok']),
         'amostra_revisao' => $linhasRevisao,
@@ -588,7 +641,7 @@ function importacao_comparar_registos_pacientes(PDO $pdo, array $registos): arra
     try {
         // Retira apenas separadores comuns; não tenta inferir indicativos internacionais.
         $exprTelefone = "REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(COALESCE(p.telemovel, ''), ' ', ''), '+', ''), '-', ''), '(', ''), ')', ''), '.', '')";
-        foreach (array_chunk(array_values($telefones), 200) as $lote) {
+        foreach (array_chunk(array_values($telefones), 1000) as $lote) {
             $marcadores = implode(',', array_fill(0, count($lote), '?'));
             $sql = "SELECT DISTINCT $exprTelefone AS telefone_normalizado
                     FROM pacientes p
@@ -603,21 +656,18 @@ function importacao_comparar_registos_pacientes(PDO $pdo, array $registos): arra
             }
         }
 
-        foreach (array_chunk(array_values($paresNomeData), 100) as $lote) {
-            $condicoes = [];
-            $parametros = [];
-            foreach ($lote as $par) {
-                $condicoes[] = '(LOWER(TRIM(nome_completo)) = LOWER(TRIM(?)) AND data_nascimento = ?)';
-                $parametros[] = $par['nome'];
-                $parametros[] = $par['data'];
-            }
-            if ($condicoes === []) {
-                continue;
-            }
-            $sql = 'SELECT DISTINCT LOWER(TRIM(nome_completo)) AS nome_normalizado, data_nascimento
-                    FROM pacientes WHERE ' . implode(' OR ', $condicoes);
+        // Agrupa por datas únicas para evitar repetir dezenas/centenas de
+        // condições idênticas quando o ficheiro tem muitos pacientes no mesmo dia.
+        $datasNascimento = array_values(array_unique(array_map(
+            static fn(array $par): string => $par['data'],
+            array_values($paresNomeData)
+        )));
+        foreach (array_chunk($datasNascimento, 500) as $loteDatas) {
+            $marcadores = implode(',', array_fill(0, count($loteDatas), '?'));
+            $sql = "SELECT DISTINCT LOWER(TRIM(nome_completo)) AS nome_normalizado, data_nascimento
+                    FROM pacientes WHERE data_nascimento IN ($marcadores)";
             $st = $pdo->prepare($sql);
-            $st->execute($parametros);
+            $st->execute($loteDatas);
             foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $registo) {
                 $nome = mb_strtolower(trim((string)$registo['nome_normalizado']));
                 $data = (string)$registo['data_nascimento'];
@@ -633,8 +683,9 @@ function importacao_comparar_registos_pacientes(PDO $pdo, array $registos): arra
     $porTelefone = 0;
     $porNomeData = 0;
     $totalCorrespondencias = 0;
+    $indicesCorrespondencia = [];
 
-    foreach ($registos as $registo) {
+    foreach ($registos as $indice => $registo) {
         $email = mb_strtolower(trim((string)($registo['email'] ?? '')));
         $telefone = preg_replace('/\D+/', '', (string)($registo['telemovel'] ?? '')) ?? '';
         $nome = importacao_normalizar_cabecalho(trim((string)($registo['nome_completo'] ?? '')));
@@ -647,7 +698,11 @@ function importacao_comparar_registos_pacientes(PDO $pdo, array $registos): arra
         $porEmail += $matchEmail ? 1 : 0;
         $porTelefone += $matchTelefone ? 1 : 0;
         $porNomeData += $matchNomeData ? 1 : 0;
-        $totalCorrespondencias += ($matchEmail || $matchTelefone || $matchNomeData) ? 1 : 0;
+        $temCorrespondencia = $matchEmail || $matchTelefone || $matchNomeData;
+        if ($temCorrespondencia) {
+            $totalCorrespondencias++;
+            $indicesCorrespondencia[$indice] = true;
+        }
     }
 
     return [
@@ -656,5 +711,54 @@ function importacao_comparar_registos_pacientes(PDO $pdo, array $registos): arra
         'por_email' => $porEmail,
         'por_telefone' => $porTelefone,
         'por_nome_data' => $porNomeData,
+        'indices_correspondencia' => $indicesCorrespondencia,
     ];
+}
+
+
+/**
+ * Mascara valores identificáveis na pequena amostra apresentada ao administrador.
+ * Os valores originais continuam apenas em memória para validação/mapeamento.
+ */
+function importacao_mascarar_valor_amostra(string $cabecalho, string $valor, array $colunasSensiveis = []): string
+{
+    if (trim($valor) === '') {
+        return '—';
+    }
+    if (in_array($cabecalho, $colunasSensiveis, true)) {
+        return '[conteúdo clínico ocultado]';
+    }
+
+    $campo = importacao_normalizar_cabecalho($cabecalho);
+    if (preg_match('/(^|_)(nome|name|patient_name|full_name)(_|$)/', $campo)) {
+        return '[nome ocultado]';
+    }
+    if (str_contains($campo, 'email') || str_contains($campo, 'correio') || $campo === 'mail') {
+        if (filter_var($valor, FILTER_VALIDATE_EMAIL)) {
+            [$local, $dominio] = explode('@', $valor, 2);
+            return mb_substr($local, 0, 1) . '•••@' . $dominio;
+        }
+        return '[email ocultado]';
+    }
+    if (str_contains($campo, 'telemovel') || str_contains($campo, 'telefone') || str_contains($campo, 'mobile') || $campo === 'phone') {
+        $digitos = preg_replace('/\D+/', '', $valor) ?? '';
+        return strlen($digitos) >= 3 ? '••• ••• ' . substr($digitos, -3) : '[telefone ocultado]';
+    }
+    if (str_contains($campo, 'nascimento') || str_contains($campo, 'birth') || $campo === 'dob') {
+        $data = importacao_data_iso($valor);
+        return $data !== null ? '••/••/' . substr($data, 0, 4) : '[data ocultada]';
+    }
+    if (str_contains($campo, 'sns') || str_contains($campo, 'utente') || str_contains($campo, 'nif')
+        || str_contains($campo, 'documento') || str_contains($campo, 'identificacao')
+        || in_array($campo, ['cc', 'bi', 'numero_cartao_cidadao'], true)) {
+        $digitos = preg_replace('/\D+/', '', $valor) ?? '';
+        return strlen($digitos) >= 2 ? '••••••' . substr($digitos, -2) : '[identificador ocultado]';
+    }
+    if (str_contains($campo, 'morada') || str_contains($campo, 'endereco') || str_contains($campo, 'address')
+        || str_contains($campo, 'postal') || str_contains($campo, 'codigo_postal')
+        || str_contains($campo, 'observacao') || str_contains($campo, 'nota')) {
+        return '[valor potencialmente pessoal ocultado]';
+    }
+
+    return mb_substr($valor, 0, 60);
 }

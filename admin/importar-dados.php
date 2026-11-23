@@ -16,8 +16,31 @@ $erros = [];
 if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
     csrf_validar();
 
+    $acaoPedido = (string)($_POST['acao'] ?? 'analisar');
+    $mapeamentoManual = null;
+    if ($acaoPedido === 'validar_mapeamento') {
+        $mapeamentoRecebido = $_POST['mapeamento'] ?? null;
+        if (!is_array($mapeamentoRecebido)) {
+            $erros[] = 'O mapeamento enviado não é válido.';
+        } else {
+            $mapeamentoManual = [];
+            foreach ($mapeamentoRecebido as $campo => $cabecalho) {
+                if (!is_string($campo) || !is_scalar($cabecalho)) {
+                    $erros[] = 'O mapeamento contém valores inválidos.';
+                    $mapeamentoManual = null;
+                    break;
+                }
+                $mapeamentoManual[$campo] = (string)$cabecalho;
+            }
+        }
+    } elseif ($acaoPedido !== 'analisar') {
+        $erros[] = 'A operação solicitada não é reconhecida.';
+    }
+
     $ficheiro = $_FILES['ficheiro_csv'] ?? null;
-    if (!is_array($ficheiro)) {
+    if ($erros !== []) {
+        // Não processa o upload quando a ação ou o mapeamento já são inválidos.
+    } elseif (!is_array($ficheiro)) {
         $erros[] = 'Seleciona um ficheiro CSV.';
     } elseif (($ficheiro['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
         $codigoErro = (int)($ficheiro['error'] ?? UPLOAD_ERR_NO_FILE);
@@ -43,7 +66,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
             if (!is_string($conteudo) || strlen($conteudo) !== $tamanho) {
                 $erros[] = 'Não foi possível ler o ficheiro completo.';
             } else {
-                $analise = importacao_analisar_csv($conteudo);
+                $analise = importacao_analisar_csv($conteudo, $mapeamentoManual);
                 if (empty($analise['ok'])) {
                     $erros[] = (string)($analise['erro'] ?? 'Não foi possível analisar o CSV.');
                     $analise = null;
@@ -51,7 +74,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
                     $validacao = importacao_validar_registos_pacientes(
                         $pdo,
                         $analise['registos_mapeados'] ?? [],
-                        $analise['mapeamento_sugerido'] ?? []
+                        $analise['mapeamento_efetivo'] ?? []
                     );
                     // Os registos completos só vivem durante este pedido e não são enviados para o HTML.
                     unset($analise['registos_mapeados']);
@@ -86,12 +109,13 @@ require __DIR__ . '/../includes/cabecalho.php';
 
 <p><a href="admin/seccao-sistema.php">← Administração do sistema</a></p>
 <h1>Importar dados de outro sistema</h1>
-<p class="ajuda">Ferramenta de preparação para migrar dados de programas antigos. Nesta fase analisa fichas de pacientes e compara correspondências por email, sem alterar os dados.</p>
+<p class="ajuda">Ferramenta de preparação para migrar dados de programas antigos. Analisa exportações, sugere ou permite corrigir o mapeamento e simula resultados sem alterar os registos.</p>
 
 <div class="alerta alerta-info" role="status">
-    <strong>Modo de pré-visualização.</strong>
-    Nesta fase, o ficheiro é lido temporariamente e analisado, mas nenhum paciente, funcionário,
-    consulta, pagamento ou documento é gravado na base de dados.
+    <strong>Modo de preparação e simulação.</strong>
+    Os ficheiros são lidos temporariamente. Para confirmar um mapeamento, terás de selecionar novamente o CSV;
+    assim não precisamos de guardar permanentemente uma cópia de dados pessoais ou clínicos.
+    Nenhum paciente, funcionário, consulta, pagamento ou documento é gravado nesta fase.
 </div>
 
 <?php foreach ($erros as $erro): ?>
@@ -107,6 +131,7 @@ require __DIR__ . '/../includes/cabecalho.php';
     </p>
     <form method="post" action="admin/importar-dados.php" enctype="multipart/form-data">
         <?= csrf_campo() ?>
+        <input type="hidden" name="acao" value="analisar">
         <div class="campo">
             <label for="ficheiro_csv">Ficheiro CSV</label>
             <input type="file" id="ficheiro_csv" name="ficheiro_csv" accept=".csv,text/csv" required>
@@ -152,19 +177,54 @@ require __DIR__ . '/../includes/cabecalho.php';
         <p class="ajuda">Compara os nomes das colunas com os campos conhecidos da ficha de paciente. Só são aceites correspondências exatas após normalização; os campos não reconhecidos ficam por mapear.</p>
         <div class="tabela-scroll">
             <table class="tabela">
-                <thead><tr><th>Campo do nosso sistema</th><th>Coluna de origem</th><th>Estado</th></tr></thead>
+                <thead><tr><th>Campo do nosso sistema</th><th>Sugestão automática</th><th>Mapeamento atual</th></tr></thead>
                 <tbody>
                     <?php foreach ($rotulosCamposImportacao as $campo => $rotulo): ?>
-                        <?php $colunaSugerida = $analise['mapeamento_sugerido'][$campo] ?? null; ?>
+                        <?php
+                            $colunaSugerida = $analise['mapeamento_sugerido'][$campo] ?? null;
+                            $colunaAtual = $analise['mapeamento_efetivo'][$campo] ?? null;
+                        ?>
                         <tr>
                             <th><?= e($rotulo) ?></th>
                             <td><?= $colunaSugerida !== null ? e((string)$colunaSugerida) : '—' ?></td>
-                            <td><?= $colunaSugerida !== null ? 'Correspondência sugerida' : 'Não identificada' ?></td>
+                            <td><?= $colunaAtual !== null ? e((string)$colunaAtual) : 'Não associado' ?></td>
                         </tr>
                     <?php endforeach; ?>
                 </tbody>
             </table>
         </div>
+
+        <section class="cartao">
+            <h3>Corrigir ou confirmar o mapeamento</h3>
+            <p class="ajuda">
+                Confirma que cada campo corresponde à coluna correta no ficheiro de origem.
+                Podes deixar campos opcionais por preencher. O nome completo é obrigatório.
+                A mesma coluna não pode ser usada duas vezes.
+            </p>
+            <form method="post" action="admin/importar-dados.php" enctype="multipart/form-data">
+                <?= csrf_campo() ?>
+                <input type="hidden" name="acao" value="validar_mapeamento">
+                <div class="campo">
+                    <label for="ficheiro_csv_mapeamento">Selecionar novamente o mesmo ficheiro CSV</label>
+                    <input type="file" id="ficheiro_csv_mapeamento" name="ficheiro_csv" accept=".csv,text/csv" required>
+                </div>
+                <?php foreach ($rotulosCamposImportacao as $campo => $rotulo): ?>
+                    <?php $selecionado = (string)($analise['mapeamento_efetivo'][$campo] ?? ''); ?>
+                    <div class="campo">
+                        <label for="mapeamento_<?= e($campo) ?>"><?= e($rotulo) ?><?= $campo === 'nome_completo' ? ' (obrigatório)' : '' ?></label>
+                        <select id="mapeamento_<?= e($campo) ?>" name="mapeamento[<?= e($campo) ?>]">
+                            <option value="">— Não importar este campo —</option>
+                            <?php foreach ($analise['cabecalhos'] as $cabecalho): ?>
+                                <option value="<?= e((string)$cabecalho) ?>" <?= $selecionado === (string)$cabecalho ? 'selected' : '' ?>>
+                                    <?= e((string)$cabecalho) ?>
+                                </option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+                <?php endforeach; ?>
+                <button type="submit" class="botao">Validar mapeamento e simular</button>
+            </form>
+        </section>
 
         <?php if (is_array($validacao)): ?>
             <h3>Validação dos registos de pacientes</h3>
@@ -173,6 +233,9 @@ require __DIR__ . '/../includes/cabecalho.php';
                     <tbody>
                         <tr><th>Registos com campos válidos</th><td><?= (int)$validacao['validos'] ?></td></tr>
                         <tr><th>Registos com erros</th><td><?= (int)$validacao['invalidos'] ?></td></tr>
+                        <?php if (!empty($validacao['comparacao_base_dados_disponivel']) && $validacao['potenciais_novos_sem_correspondencia'] !== null): ?>
+                            <tr><th>Potenciais novos (sem correspondência nas regras testadas)</th><td><?= (int)$validacao['potenciais_novos_sem_correspondencia'] ?></td></tr>
+                        <?php endif; ?>
                         <tr><th>Possíveis duplicados dentro do ficheiro</th><td><?= (int)$validacao['possiveis_duplicados_ficheiro'] ?></td></tr>
                         <tr><th>Correspondências por email</th><td><?= (int)$validacao['correspondencias_email_base_dados'] ?></td></tr>
                         <tr><th>Correspondências por telefone</th><td><?= (int)$validacao['correspondencias_telefone_base_dados'] ?></td></tr>
@@ -192,6 +255,10 @@ require __DIR__ . '/../includes/cabecalho.php';
             <?php if (empty($validacao['comparacao_base_dados_disponivel'])): ?>
                 <div class="alerta alerta-erro" role="alert">
                     A comparação com a base de dados não ficou disponível. Não interpretes a ausência de correspondências como novos pacientes.
+                </div>
+            <?php elseif ($validacao['potenciais_novos_sem_correspondencia'] !== null): ?>
+                <div class="alerta alerta-info" role="status">
+                    A simulação identificou <?= (int)$validacao['potenciais_novos_sem_correspondencia'] ?> registo(s) válido(s) sem correspondência por email, telefone ou nome/data. Isto não garante que sejam pacientes novos: ainda podem existir duplicados por outros identificadores ou dados incompletos.
                 </div>
             <?php endif; ?>
 
@@ -233,7 +300,7 @@ require __DIR__ . '/../includes/cabecalho.php';
         </ul>
 
         <h3>Amostra dos primeiros registos</h3>
-        <p class="ajuda">São apresentados no máximo 10 registos. Os valores são truncados para facilitar a leitura.</p>
+        <p class="ajuda">São apresentados no máximo 10 registos e os valores são truncados. A pré-visualização pode conter dados pessoais; utiliza-a apenas num computador autorizado e não partilhes capturas ou exportações sem autorização.</p>
         <div class="tabela-scroll">
             <table class="tabela">
                 <thead>
@@ -276,7 +343,8 @@ require __DIR__ . '/../includes/cabecalho.php';
         <li>Não importa ficheiros Excel XLS/XLSX, XML, SQL, imagens ou documentos nesta versão.</li>
         <li>Não cria nem atualiza pacientes, contas, funcionários, consultas ou pagamentos.</li>
         <li>As correspondências são apenas por email, telefone normalizado e nome/data de nascimento; não há análise documental nem fusão automática.</li>
-        <li>Não permite corrigir manualmente o mapeamento sugerido nem executar uma importação.</li>
+        <li>Não guarda ficheiros ou sessões de importação de forma persistente; é necessário voltar a selecionar o CSV para confirmar o mapeamento.</li>
+        <li>Não executa importações reais nem cria fichas, contas, consultas, pagamentos ou relações.</li>
         <li>Não substitui o backup, o mapeamento completo das relações nem a aprovação da clínica.</li>
     </ul>
     <p class="ajuda">

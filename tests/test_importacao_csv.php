@@ -26,7 +26,9 @@ $testes['Windows-1252'] = static function (): bool {
     $texto = "Nome;Observação\nJoão;Informação";
     $conteudo = iconv('UTF-8', 'Windows-1252', $texto);
     $r = importacao_analisar_csv((string)$conteudo);
-    return !empty($r['ok']) && str_contains((string)($r['amostra'][0]['Observação'] ?? ''), 'Informação');
+    return !empty($r['ok'])
+        && ($r['encoding'] ?? '') === 'Windows-1252 convertido para UTF-8'
+        && ($r['amostra'][0]['Observação'] ?? '') === '[valor potencialmente pessoal ocultado]';
 };
 $testes['Cabeçalhos repetidos rejeitados'] = static function (): bool {
     $r = importacao_analisar_csv("Nome;Email;email\nAna;a@example.test;b@example.test");
@@ -127,6 +129,69 @@ $testes['Datas de nascimento futuras são rejeitadas'] = static function (): boo
         ['nome_completo' => 'Nome', 'data_nascimento' => 'Nascimento']
     );
     return ($r['invalidos'] ?? -1) === 1;
+};
+$testes['Mapeamento manual altera as colunas utilizadas'] = static function (): bool {
+    $r = importacao_analisar_csv(
+        "Nome antigo;Correio;Contacto\nAna Silva;ana@example.test;912345678",
+        ['nome_completo' => 'Nome antigo', 'email' => 'Correio', 'telemovel' => 'Contacto']
+    );
+    $linha = $r['registos_mapeados'][0] ?? [];
+    return !empty($r['ok'])
+        && ($r['modo_mapeamento'] ?? '') === 'manual'
+        && ($linha['nome_completo'] ?? '') === 'Ana Silva'
+        && ($linha['email'] ?? '') === 'ana@example.test'
+        && ($linha['telemovel'] ?? '') === '912345678';
+};
+$testes['Mapeamento manual exige nome completo'] = static function (): bool {
+    $r = importacao_analisar_csv("Email;Telefone\na@example.test;912345678", ['email' => 'Email']);
+    return empty($r['ok']) && str_contains((string)($r['erro'] ?? ''), 'Nome completo');
+};
+$testes['Mapeamento manual não permite reutilizar coluna'] = static function (): bool {
+    $r = importacao_analisar_csv(
+        "Nome;Contacto\nAna;ana@example.test",
+        ['nome_completo' => 'Nome', 'email' => 'Contacto', 'telemovel' => 'Contacto']
+    );
+    return empty($r['ok']) && str_contains((string)($r['erro'] ?? ''), 'não pode ser associada');
+};
+$testes['Mapeamento manual rejeita coluna que não existe'] = static function (): bool {
+    $r = importacao_analisar_csv("Nome;Email\nAna;a@example.test", ['nome_completo' => 'Nome', 'email' => 'Email Antigo']);
+    return empty($r['ok']) && str_contains((string)($r['erro'] ?? ''), 'não existe');
+};
+$testes['Mapeamento manual rejeita campo de destino desconhecido'] = static function (): bool {
+    $r = importacao_analisar_csv("Nome;Email\nAna;a@example.test", ['nome_completo' => 'Nome', 'password_hash' => 'Email']);
+    return empty($r['ok']) && str_contains((string)($r['erro'] ?? ''), 'não permitido');
+};
+$testes['Simulação conta potenciais novos sem criar registos'] = static function (): bool {
+    $pdo = new PDO('sqlite::memory:');
+    $pdo->exec("CREATE TABLE pacientes (id INTEGER PRIMARY KEY, utilizador_id INTEGER, nome_completo TEXT, email TEXT, telemovel TEXT, data_nascimento TEXT)");
+    $pdo->exec("CREATE TABLE utilizadores (id INTEGER PRIMARY KEY, email TEXT, papel TEXT)");
+    $pdo->exec("INSERT INTO pacientes (id, nome_completo, email) VALUES (1, 'Paciente Existente', 'existe@example.test')");
+    $registos = [
+        ['nome_completo' => 'Paciente Existente', 'email' => 'existe@example.test'],
+        ['nome_completo' => 'Paciente Novo', 'email' => 'novo@example.test'],
+    ];
+    $antes = (int)$pdo->query('SELECT COUNT(*) FROM pacientes')->fetchColumn();
+    $r = importacao_validar_registos_pacientes($pdo, $registos, ['nome_completo' => 'Nome', 'email' => 'Email']);
+    $depois = (int)$pdo->query('SELECT COUNT(*) FROM pacientes')->fetchColumn();
+    return ($r['validos'] ?? -1) === 2
+        && ($r['total_correspondencias_base_dados'] ?? -1) === 1
+        && ($r['potenciais_novos_sem_correspondencia'] ?? -1) === 1
+        && $antes === $depois;
+};
+$testes['Amostra oculta nomes'] = static function (): bool {
+    return importacao_mascarar_valor_amostra('Nome do Paciente', 'Rafael Alves') === '[nome ocultado]';
+};
+$testes['Amostra mascara email'] = static function (): bool {
+    return importacao_mascarar_valor_amostra('Email', 'rafael@example.test') === 'r•••@example.test';
+};
+$testes['Amostra mascara telefone'] = static function (): bool {
+    return importacao_mascarar_valor_amostra('Telemóvel', '912345678') === '••• ••• 678';
+};
+$testes['Amostra mascara data de nascimento'] = static function (): bool {
+    return importacao_mascarar_valor_amostra('Data de Nascimento', '12/08/2008') === '••/••/2008';
+};
+$testes['Amostra oculta conteúdo clínico'] = static function (): bool {
+    return importacao_mascarar_valor_amostra('Diagnóstico', 'Informação clínica confidencial', ['Diagnóstico']) === '[conteúdo clínico ocultado]';
 };
 
 $falhas = 0;

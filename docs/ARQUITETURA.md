@@ -17,7 +17,7 @@
 - `marcacao.php`: fluxo e regras de marcação (carregamento de contexto, disponibilidade, reservas, validações).
 - `pagamentos.php` + `gateway.php`: modelo de pagamentos, presenciais/online, abstração de gateway (scaffold), estados e idempotência; callbacks devem ser **autenticados e idempotentes** (ver `pagamento-webhook.php`).
 - `gestao.php`, `conta.php`, `stock.php`, `consulta-preparacao.php`: suporte a administração, área pessoal, stock e conteúdos/componentes operacionais.
-- `importacao.php`: análise read-only de CSV, deteção de codificação/delimitador, sugestões de mapeamento de campos de paciente, validação básica, identificação de possíveis duplicados no ficheiro e comparação de emails exatos com a base local. Não grava registos importados.
+- `importacao.php`: análise read-only de CSV, deteção de codificação/delimitador, mapeamento automático/manual, validação de campos, sinalização de possíveis duplicados, comparação de email/telefone/nome-data e mascaramento de valores na amostra. Não grava registos importados.
 
 ### UI (`includes/ui/`)
 - `cabecalho.php`/`rodape.php`: layout comum, navegação, tema, CSRF meta, identidade (logo/favicon/nome configuráveis), scripts de UI.
