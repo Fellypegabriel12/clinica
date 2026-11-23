@@ -101,7 +101,9 @@ $testes['Possíveis duplicados dentro do ficheiro'] = static function (): bool {
         ['nome_completo' => 'Bruno Costa', 'email' => 'bruno@example.test', 'telemovel' => '912345678'],
     ];
     $r = importacao_validar_registos_pacientes($pdo, $registos, $mapeamento);
-    return ($r['possiveis_duplicados_ficheiro'] ?? -1) === 2;
+    $estados = array_column($r['revisao_registos'] ?? [], 'estado');
+    return ($r['possiveis_duplicados_ficheiro'] ?? -1) === 3
+        && count(array_filter($estados, static fn(string $estado): bool => $estado === 'possível duplicado no ficheiro')) === 3;
 };
 $testes['Comparação por telefone e nome/data na base existente'] = static function (): bool {
     $pdo = new PDO('sqlite::memory:');
@@ -192,6 +194,33 @@ $testes['Amostra mascara data de nascimento'] = static function (): bool {
 };
 $testes['Amostra oculta conteúdo clínico'] = static function (): bool {
     return importacao_mascarar_valor_amostra('Diagnóstico', 'Informação clínica confidencial', ['Diagnóstico']) === '[conteúdo clínico ocultado]';
+};
+
+$testes['Revisão individual classifica registos sem expor dados pessoais'] = static function (): bool {
+    $pdo = new PDO('sqlite::memory:');
+    $pdo->exec("CREATE TABLE pacientes (id INTEGER PRIMARY KEY, utilizador_id INTEGER, nome_completo TEXT, email TEXT, telemovel TEXT, data_nascimento TEXT)");
+    $pdo->exec("CREATE TABLE utilizadores (id INTEGER PRIMARY KEY, email TEXT, papel TEXT)");
+    $pdo->exec("INSERT INTO pacientes (id, nome_completo, email) VALUES (1, 'Paciente Existente', 'existente@example.test')");
+    $registos = [
+        ['nome_completo' => 'Paciente Existente', 'email' => 'existente@example.test'],
+        ['nome_completo' => 'Paciente Novo', 'email' => 'novo-unico@example.test'],
+        ['nome_completo' => '', 'email' => 'invalido@example.test'],
+        ['nome_completo' => 'Pessoa Repetida A', 'email' => 'repetido@example.test'],
+        ['nome_completo' => 'Pessoa Repetida B', 'email' => 'repetido@example.test'],
+    ];
+    $r = importacao_validar_registos_pacientes($pdo, $registos, ['nome_completo' => 'Nome', 'email' => 'Email']);
+    $linhas = $r['revisao_registos'] ?? [];
+    $texto = json_encode($linhas, JSON_UNESCAPED_UNICODE);
+    return count($linhas) === 5
+        && ($linhas[0]['estado'] ?? '') === 'possível correspondência existente'
+        && ($linhas[1]['estado'] ?? '') === 'potencial novo'
+        && ($linhas[2]['estado'] ?? '') === 'inválido'
+        && ($linhas[3]['estado'] ?? '') === 'possível duplicado no ficheiro'
+        && ($linhas[4]['estado'] ?? '') === 'possível duplicado no ficheiro'
+        && ($r['estados_registos']['invalidos'] ?? -1) === 1
+        && ($r['estados_registos']['possiveis_duplicados'] ?? -1) === 2
+        && !str_contains((string)$texto, 'existente@example.test')
+        && !str_contains((string)$texto, 'Paciente Existente');
 };
 
 $falhas = 0;

@@ -246,6 +246,40 @@ require __DIR__ . '/../includes/cabecalho.php';
                 </table>
             </div>
 
+            <?php if (!empty($validacao['mapeamento_completo'])): ?>
+                <h3>Revisão individual dos registos</h3>
+                <p class="ajuda">Cada linha recebe um estado preliminar. Por segurança, esta lista mostra apenas o número da linha e o motivo — nunca os valores pessoais do paciente. São apresentadas até 50 linhas por pedido.</p>
+                <div class="tabela-scroll">
+                    <table class="tabela">
+                        <thead><tr><th>Estado</th><th>Quantidade</th></tr></thead>
+                        <tbody>
+                            <tr><th>Inválidos</th><td><?= (int)($validacao['estados_registos']['invalidos'] ?? 0) ?></td></tr>
+                            <tr><th>Possíveis duplicados no ficheiro</th><td><?= (int)($validacao['estados_registos']['possiveis_duplicados'] ?? 0) ?></td></tr>
+                            <tr><th>Possíveis correspondências existentes</th><td><?= (int)($validacao['estados_registos']['correspondencias_existentes'] ?? 0) ?></td></tr>
+                            <tr><th>Potenciais novos</th><td><?= (int)($validacao['estados_registos']['potenciais_novos'] ?? 0) ?></td></tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div class="tabela-scroll">
+                    <table class="tabela">
+                        <thead><tr><th>Linha CSV</th><th>Estado preliminar</th><th>Motivo</th></tr></thead>
+                        <tbody>
+                            <?php foreach (($validacao['revisao_registos'] ?? []) as $item): ?>
+                                <tr>
+                                    <td><?= (int)$item['linha'] ?></td>
+                                    <td><?= e((string)$item['estado']) ?></td>
+                                    <td><?= e((string)$item['motivo']) ?></td>
+                                </tr>
+                            <?php endforeach; ?>
+                        </tbody>
+                    </table>
+                </div>
+                <?php if (!empty($validacao['revisao_registos_limitada'])): ?>
+                    <p class="ajuda">A lista está limitada às primeiras 50 linhas. Os totais acima incluem todos os registos analisados.</p>
+                <?php endif; ?>
+                <div class="alerta alerta-info" role="status">Estes estados são sugestões para revisão humana, não decisões de importação. Uma correspondência pode pertencer a outra pessoa e um potencial novo pode já existir com outros dados.</div>
+            <?php endif; ?>
+
             <?php if (empty($validacao['mapeamento_completo'])): ?>
                 <div class="alerta alerta-erro" role="alert">
                     Não foi possível identificar a coluna obrigatória do nome do paciente. Nenhuma validação de conteúdo foi executada.

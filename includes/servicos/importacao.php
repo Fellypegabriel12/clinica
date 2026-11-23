@@ -474,6 +474,8 @@ function importacao_validar_registos_pacientes(PDO $pdo, array $registos, array 
     $chavesVistas = [];
     $possiveisDuplicados = 0;
     $linhasRevisao = [];
+    $duplicadosIndices = [];
+    $problemasPorIndice = [];
 
     foreach ($registos as $indice => $registo) {
         $problemas = [];
@@ -529,11 +531,20 @@ function importacao_validar_registos_pacientes(PDO $pdo, array $registos, array 
         foreach ($chavesLinha as $chaveDuplicado) {
             if (isset($chavesVistas[$chaveDuplicado])) {
                 $duplicadoNaLinha = true;
+                $indiceAnterior = (int)$chavesVistas[$chaveDuplicado];
+                if (!isset($duplicadosIndices[$indiceAnterior])) {
+                    $possiveisDuplicados++;
+                }
+                $duplicadosIndices[$indiceAnterior] = true;
+            } else {
+                $chavesVistas[$chaveDuplicado] = $indice;
             }
-            $chavesVistas[$chaveDuplicado] = true;
         }
         if ($duplicadoNaLinha) {
-            $possiveisDuplicados++;
+            if (!isset($duplicadosIndices[$indice])) {
+                $possiveisDuplicados++;
+            }
+            $duplicadosIndices[$indice] = true;
             if (count($linhasRevisao) < 20) {
                 $linhasRevisao[] = [
                     'linha' => $indice + 2,
@@ -547,6 +558,7 @@ function importacao_validar_registos_pacientes(PDO $pdo, array $registos, array 
             $linhasValidas[$indice] = true;
         } else {
             $invalidos++;
+            $problemasPorIndice[$indice] = $problemas;
             if (count($linhasRevisao) < 20) {
                 $linhasRevisao[] = [
                     'linha' => $indice + 2,
@@ -556,6 +568,15 @@ function importacao_validar_registos_pacientes(PDO $pdo, array $registos, array 
         }
 
         if ($email !== '' && isset($emailsDoFicheiro[$email])) {
+            $indiceAnteriorEmail = (int)$emailsDoFicheiro[$email];
+            if (!isset($duplicadosIndices[$indiceAnteriorEmail])) {
+                $possiveisDuplicados++;
+            }
+            $duplicadosIndices[$indiceAnteriorEmail] = true;
+            if (!isset($duplicadosIndices[$indice])) {
+                $possiveisDuplicados++;
+            }
+            $duplicadosIndices[$indice] = true;
             if (count($linhasRevisao) < 20) {
                 $linhasRevisao[] = [
                     'linha' => $indice + 2,
@@ -563,8 +584,8 @@ function importacao_validar_registos_pacientes(PDO $pdo, array $registos, array 
                 ];
             }
         }
-        if ($email !== '') {
-            $emailsDoFicheiro[$email] = true;
+        if ($email !== '' && !isset($emailsDoFicheiro[$email])) {
+            $emailsDoFicheiro[$email] = $indice;
         }
     }
 
@@ -577,6 +598,45 @@ function importacao_validar_registos_pacientes(PDO $pdo, array $registos, array 
             if (!isset($indicesComCorrespondencia[$indice])) {
                 $potenciaisNovos++;
             }
+        }
+    }
+
+    $estadosRegistos = [
+        'invalidos' => 0,
+        'possiveis_duplicados' => 0,
+        'correspondencias_existentes' => 0,
+        'potenciais_novos' => 0,
+    ];
+    $revisaoRegistos = [];
+    foreach ($registos as $indice => $_registo) {
+        $temProblemas = isset($problemasPorIndice[$indice]);
+        $duplicado = isset($duplicadosIndices[$indice]);
+        $correspondencia = isset($indicesComCorrespondencia[$indice]);
+        if ($temProblemas) {
+            $estado = 'inválido';
+            $motivo = implode('; ', $problemasPorIndice[$indice]);
+            $estadosRegistos['invalidos']++;
+        } elseif ($duplicado) {
+            $estado = 'possível duplicado no ficheiro';
+            $motivo = 'Partilha email, telefone ou nome/data com outra linha do ficheiro.';
+            $estadosRegistos['possiveis_duplicados']++;
+        } elseif ($correspondencia) {
+            $estado = 'possível correspondência existente';
+            $motivo = 'Coincide por pelo menos um dos critérios pesquisados na base atual.';
+            $estadosRegistos['correspondencias_existentes']++;
+        } else {
+            $estado = !empty($comparacao['ok']) ? 'potencial novo' : 'comparação indisponível';
+            $motivo = !empty($comparacao['ok'])
+                ? 'Sem correspondência nas regras pesquisadas; não confirma que seja um paciente novo.'
+                : 'Não foi possível comparar com a base de dados.';
+            $estadosRegistos['potenciais_novos']++;
+        }
+        if (count($revisaoRegistos) < 50) {
+            $revisaoRegistos[] = [
+                'linha' => $indice + 2,
+                'estado' => $estado,
+                'motivo' => $motivo,
+            ];
         }
     }
 
@@ -595,6 +655,9 @@ function importacao_validar_registos_pacientes(PDO $pdo, array $registos, array 
         'sem_email' => $semEmail,
         'comparacao_base_dados_disponivel' => !empty($comparacao['ok']),
         'amostra_revisao' => $linhasRevisao,
+        'estados_registos' => $estadosRegistos,
+        'revisao_registos' => $revisaoRegistos,
+        'revisao_registos_limitada' => $total > count($revisaoRegistos),
     ];
 }
 
