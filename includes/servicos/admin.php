@@ -43,6 +43,7 @@ function admin_seccoes(): array
                 'bloqueios.php',
                 'especialidades.php',
                 'tratamentos.php',
+                'unidades.php',
             ],
             'funcionalidades' => [
                 [
@@ -58,9 +59,9 @@ function admin_seccoes(): array
                     'papeis'    => ['admin'],
                 ],
                 [
-                    'titulo'    => 'Locais',
-                    'descricao' => 'Morada, mapa e contactos da clínica, definidos nas configurações gerais.',
-                    'url'       => 'admin/configuracoes.php',
+                    'titulo'    => 'Unidades',
+                    'descricao' => 'Adiciona, edita, desativa ou remove unidades e define a localização de cada uma no mapa.',
+                    'url'       => 'admin/unidades.php',
                     'papeis'    => ['admin'],
                 ],
                 [

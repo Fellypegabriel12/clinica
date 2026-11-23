@@ -38,7 +38,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $materialForm['referencia'] = trim((string)($_POST['referencia'] ?? ''));
             $materialForm['categoria'] = (int)($_POST['categoria'] ?? 0);
             $materialForm['unidade'] = trim((string)($_POST['unidade'] ?? 'un'));
-            $materialForm['stock_minimo'] = (int)($_POST['stock_minimo'] ?? 0);
+            $minRaw = trim((string)($_POST['stock_minimo'] ?? '0'));
+            $minValidado = filter_var($minRaw, FILTER_VALIDATE_INT);
+            $materialForm['stock_minimo'] = $minValidado === false ? $minRaw : $minValidado;
             $materialForm['stock_maximo'] = trim((string)($_POST['stock_maximo'] ?? ''));
             $precoInput = str_replace(',', '.', trim((string)($_POST['preco_unitario'] ?? '')));
             $materialForm['preco_unitario'] = $precoInput;
@@ -47,7 +49,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $materialForm['descricao'] = trim((string)($_POST['descricao'] ?? ''));
 
             $id = $materialForm['id'];
-            $min = $materialForm['stock_minimo'];
+            $min = $minValidado;
             $max = $materialForm['stock_maximo'] !== '' ? filter_var($materialForm['stock_maximo'], FILTER_VALIDATE_INT) : null;
             $preco = $precoInput === '' ? null : (is_numeric($precoInput) ? (float)$precoInput : null);
             $val = $materialForm['validade'] ?: null;
@@ -63,11 +65,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
             if (mb_strlen($materialForm['fornecedor']) > 120) { $erros[] = 'O fornecedor é demasiado longo.'; }
             if (mb_strlen($materialForm['descricao']) > 255) { $erros[] = 'A descrição é demasiado longa.'; }
-            if ($min < 0 || ($materialForm['stock_maximo'] !== '' && ($max === false || $max < $min))) {
-                $erros[] = 'O stock máximo tem de ser vazio ou igual/superior ao stock mínimo.';
+            if ($min === false || $min < 0) {
+                $erros[] = 'O stock mínimo tem de ser um número inteiro igual ou superior a zero.';
             }
-            if ($materialForm['stock_maximo'] !== '' && ($max === false || $max < 0)) {
-                $erros[] = 'O stock máximo é inválido.';
+            if ($materialForm['stock_maximo'] !== '' && ($max === false || $max < 0 || ($min !== false && $max < $min))) {
+                $erros[] = 'O stock máximo tem de ser vazio ou igual/superior ao stock mínimo.';
             }
             if ($precoInput !== '' && (!preg_match('/^\d+(?:\.\d{1,2})?$/', $precoInput) || $preco === null || $preco > 99999999.99)) {
                 $erros[] = 'Indica um preço válido, com no máximo duas casas decimais.';
@@ -135,10 +137,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $ref    = trim((string)($_POST['referencia'] ?? ''));
             $catId  = (int)($_POST['categoria'] ?? 0) ?: null;
             $unid   = trim((string)($_POST['unidade'] ?? 'un'));
-            $qtd    = max(0, (int)($_POST['quantidade'] ?? 0));
-            $min    = max(0, (int)($_POST['stock_minimo'] ?? 0));
-            $max    = ($_POST['stock_maximo'] ?? '') !== '' ? max(0, (int)$_POST['stock_maximo']) : null;
-            $preco  = ($_POST['preco_unitario'] ?? '') !== '' ? (float)str_replace(',', '.', (string)$_POST['preco_unitario']) : null;
+            $qtdRaw = (string)($_POST['quantidade'] ?? '0');
+            $minRaw = (string)($_POST['stock_minimo'] ?? '0');
+            $maxRaw = trim((string)($_POST['stock_maximo'] ?? ''));
+            $qtd    = filter_var($qtdRaw, FILTER_VALIDATE_INT);
+            $min    = filter_var($minRaw, FILTER_VALIDATE_INT);
+            $max    = $maxRaw !== '' ? filter_var($maxRaw, FILTER_VALIDATE_INT) : null;
+            $precoRaw = str_replace(',', '.', trim((string)($_POST['preco_unitario'] ?? '')));
+            $preco  = $precoRaw !== '' && is_numeric($precoRaw) ? (float)$precoRaw : null;
             $forn   = trim((string)($_POST['fornecedor'] ?? ''));
             $val    = trim((string)($_POST['validade'] ?? '')) ?: null;
             $desc   = mb_substr(trim((string)($_POST['descricao'] ?? '')), 0, 255);
@@ -149,25 +155,57 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if ($ref !== '' && mb_strlen($ref) > 60) {
                 $erros[] = 'A referência é demasiado longa.';
             }
-            if ($preco !== null && $preco < 0) {
-                $erros[] = 'O preço não pode ser negativo.';
+            if (mb_strlen($unid) < 1 || mb_strlen($unid) > 20) {
+                $erros[] = 'A unidade deve ter entre 1 e 20 caracteres.';
             }
-            if ($val !== null && !preg_match('/^\d{4}-\d{2}-\d{2}$/', $val)) {
+            if (mb_strlen($forn) > 120) { $erros[] = 'O fornecedor é demasiado longo.'; }
+            if ($qtd === false || $qtd < 0) { $erros[] = 'A quantidade inicial tem de ser igual ou superior a zero.'; }
+            if ($min === false || $min < 0) { $erros[] = 'O stock mínimo tem de ser igual ou superior a zero.'; }
+            if ($maxRaw !== '' && ($max === false || $max < 0 || ($min !== false && $max < $min))) {
+                $erros[] = 'O stock máximo tem de ser vazio ou igual/superior ao stock mínimo.';
+            }
+            if ($precoRaw !== '' && (!preg_match('/^\d+(?:\.\d{1,2})?$/', $precoRaw) || $preco === null || $preco > 99999999.99)) {
+                $erros[] = 'Indica um preço válido, com no máximo duas casas decimais.';
+            }
+            if ($val !== null && (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $val)
+                || !checkdate((int)substr($val, 5, 2), (int)substr($val, 8, 2), (int)substr($val, 0, 4)))) {
                 $erros[] = 'Data de validade inválida.';
+            }
+            if ($catId !== null) {
+                $stCat = $pdo->prepare('SELECT ativo FROM stock_categorias WHERE id = ?');
+                $stCat->execute([$catId]);
+                $categoriaAtiva = $stCat->fetchColumn();
+                if ($categoriaAtiva === false || !(int)$categoriaAtiva) {
+                    $erros[] = 'Seleciona uma categoria ativa.';
+                }
             }
 
             if ($erros === []) {
-                $pdo->prepare(
-                    'INSERT INTO stock_materiais
-                        (categoria_id, referencia, nome, descricao, unidade, quantidade, stock_minimo, stock_maximo,
-                         preco_unitario, fornecedor, validade)
-                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
-                )->execute([
-                    $catId, $ref ?: null, $nome, $desc ?: null, $unid ?: 'un',
-                    $qtd, $min, $max, $preco, $forn ?: null, $val,
-                ]);
-                registar_admin('stock_novo_material', 'stock_materiais', (int)$pdo->lastInsertId(), $nome);
-                flash_definir('sucesso', 'Material criado.');
+                $pdo->beginTransaction();
+                try {
+                    $pdo->prepare(
+                        'INSERT INTO stock_materiais
+                            (categoria_id, referencia, nome, descricao, unidade, quantidade, stock_minimo, stock_maximo,
+                             preco_unitario, fornecedor, validade)
+                         VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?)'
+                    )->execute([
+                        $catId, $ref ?: null, $nome, $desc ?: null, $unid,
+                        $min, $max, $preco, $forn ?: null, $val,
+                    ]);
+                    $novoId = (int)$pdo->lastInsertId();
+
+                    // A quantidade inicial também fica registada no histórico de movimentos.
+                    if ($qtd > 0) {
+                        _stock_aplicar_movimento($pdo, $novoId, 'entrada', $qtd, 'Stock inicial', (int)$u['id']);
+                    }
+                    $pdo->commit();
+                } catch (Throwable $e) {
+                    if ($pdo->inTransaction()) { $pdo->rollBack(); }
+                    throw $e;
+                }
+
+                registar_admin('stock_novo_material', 'stock_materiais', $novoId, $nome);
+                flash_definir('sucesso', 'Material criado. A quantidade inicial ficou registada no histórico.');
                 redirecionar('admin/stock.php');
             }
         }
@@ -440,7 +478,7 @@ echo estilos_stock();
         <?php endif; ?>
         <div class="campo">
             <label for="stock_minimo">Stock mínimo</label>
-            <input type="number" id="stock_minimo" name="stock_minimo" min="0" value="<?= (int)$materialForm['stock_minimo'] ?>">
+            <input type="number" id="stock_minimo" name="stock_minimo" min="0" step="1" value="<?= e((string)$materialForm['stock_minimo']) ?>">
         </div>
         <div class="campo">
             <label for="stock_maximo">Stock máximo (opcional)</label>
