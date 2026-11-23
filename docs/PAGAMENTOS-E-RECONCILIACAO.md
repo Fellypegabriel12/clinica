@@ -33,15 +33,24 @@ Existem duas origens distintas:
 
 O histórico detalhado fica em `pagamentos_reembolsos`. Os identificadores de eventos recebidos ficam em `pagamentos_gateway_eventos`. A migração 007 cria ambas as tabelas e importa os reembolsos e identificadores antigos, sem eliminar pagamentos.
 
+## Cartões guardados
+
+- Cada conta de paciente pode ter um Customer Stripe próprio, identificado localmente por `utilizadores.stripe_customer_id`.
+- A página `cartoes.php` pede consentimento explícito antes de iniciar um SetupIntent. O SetupIntent usa `usage=on_session`: o cartão pode ser apresentado quando o paciente está autenticado, mas não autoriza cobranças automáticas quando está ausente.
+- O Payment Element recebe uma Customer Session com redisplay de métodos guardados ativo. O paciente escolhe o cartão no checkout e confirma cada pagamento.
+- A clínica guarda apenas o ID Stripe do Customer, o ID Stripe do PaymentMethod e o registo do consentimento. A Stripe processa o número completo, validade e CVC.
+- A remoção desassocia o PaymentMethod do Customer Stripe e revoga o consentimento local. A migração 008 cria a coluna e a tabela necessárias, sem mexer nos pagamentos anteriores.
+
 ## Relatórios
 
 - O relatório financeiro usa a data do recebimento para entradas e a data do movimento para saídas/reembolsos.
 - O valor líquido do período é o recebido bruto no período menos os reembolsos efetivamente registados nesse período. Um reembolso feito num mês posterior aparece nesse mês, não no mês do pagamento original.
 - O painel de pagamentos calcula os totais sobre todos os registos que correspondem aos filtros. A tabela apresenta até 600 movimentos mais recentes e informa quando existem mais resultados.
 
-## Estado verificado em 22/11/2026
+## Estado verificado em 23/11/2026
 
-- Base de dados local: migração 007 aplicada.
+- Base de dados local: migrações 007 e 008 aplicadas.
+- Cartões guardados: migração 008, Customer Stripe, SetupIntent em modo `on_session`, Customer Session e registo do consentimento implementados. Ainda não foi adicionado/testado um cartão real ou de teste através da interface.
 - As chaves locais estão no ambiente de teste e o endpoint Stripe respondeu à consulta de conta.
 - A resposta da Stripe indicou `charges_enabled=false` e `details_submitted=false`. A integração de código e a validação local da assinatura foram testadas, mas **não foi confirmada uma cobrança de cartão de ponta a ponta**. A conta Stripe ainda precisa de ser ativada/completada no painel do prestador e o webhook público tem de ser configurado e testado.
 
@@ -51,4 +60,8 @@ Antes das alterações, foi criado o backup SQL:
 
 `C:\Users\HP\Documents\Backups\clinica_dentaria-pre-correcoes-20261122-234856.sql`
 
-O commit anterior às correções está identificado como `8e85249`. Para desfazer apenas o commit de correções depois de este ser criado, usar `git revert <hash-do-commit-de-correcoes>`. A migração 007 é aditiva; não remover as tabelas diretamente enquanto existirem dados financeiros nelas.
+O commit anterior às correções financeiras está identificado como `8e85249`. Antes da integração visual/cartões existe ainda a tag `checkpoint/checkout-cartoes-antes` a apontar para `19b33e1`. O backup anterior a esta integração está em:
+
+`C:\Users\HP\Documents\Backups\clinica_dentaria-antes-cartoes-20261123-000623.sql`
+
+Para desfazer apenas a integração visual/cartões depois de criado o seu commit, usar `git revert <hash-do-commit>`. As migrações 007 e 008 são aditivas; não remover as respetivas tabelas/colunas sem primeiro avaliar os dados.

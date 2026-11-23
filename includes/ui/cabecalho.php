@@ -169,6 +169,9 @@ if (!is_array($css_extra)) {
                 <span id="icone-tema" aria-hidden="true">🌙</span>
                 <span class="so-leitor">Alternar tema</span>
             </button>
+            <?php if ($utilizador && ($utilizador['papel'] ?? '') === 'paciente'): ?>
+                <a href="cartoes.php" class="botao-sair botao-cartoes" aria-label="Gerir cartões guardados"<?= $paginaAtual === 'cartoes.php' ? ' aria-current="page"' : '' ?>>Cartões</a>
+            <?php endif; ?>
             <?php if ($utilizador): ?>
                 <form action="logout.php" method="post" class="form-inline">
                     <?= csrf_campo() ?>

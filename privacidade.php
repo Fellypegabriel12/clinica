@@ -89,6 +89,17 @@ require __DIR__ . '/includes/cabecalho.php';
         autoridades públicas quando legalmente exigido. Não são transferidos
         para fora do Espaço Económico Europeu sem garantias adequadas.
     </p>
+    <p>
+        Se o titular optar por guardar um cartão na área pessoal, os dados do cartão
+        são recolhidos e conservados pela Stripe para permitir a sua apresentação
+        em pagamentos futuros iniciados pelo próprio titular. A clínica conserva
+        apenas os identificadores do cliente e do método de pagamento na Stripe e
+        o registo do consentimento. O número completo do cartão e o CVC não são
+        recebidos nem guardados pela clínica. O cartão guardado só é apresentado
+        quando o titular tem sessão iniciada e cada pagamento exige confirmação
+        expressa. O consentimento pode ser retirado na área «Cartões», removendo
+        o cartão guardado.
+    </p>
 </section>
 
 <section class="cartao seccao">

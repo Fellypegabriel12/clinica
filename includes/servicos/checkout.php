@@ -147,7 +147,8 @@ function checkout_preparar_intencao(
     array $marcacao,
     array $resumo,
     string $email,
-    string $tipo = 'total'
+    string $tipo = 'total',
+    string $customerId = ''
 ): array {
     $tipo = $tipo === 'sinal' ? 'sinal' : 'total';
     $pag = checkout_pagamento_em_curso($pdo, (int)$marcacao['id'], $tipo);
@@ -185,6 +186,9 @@ function checkout_preparar_intencao(
         $status = (string)($pi['status'] ?? '');
         $amountPi = (int)($pi['amount'] ?? 0);
         $amountEsperado = (int)round($valor * 100);
+        $clienteEsperado = trim($customerId);
+        $clienteAtual = trim((string)($pi['customer'] ?? ''));
+        $customerDiferente = $clienteEsperado !== '' && $clienteAtual !== $clienteEsperado;
 
         if ($status === 'succeeded') {
             return [
@@ -196,7 +200,8 @@ function checkout_preparar_intencao(
             ];
         }
 
-        if ($amountPi === $amountEsperado
+        if (!$customerDiferente
+            && $amountPi === $amountEsperado
             && in_array($status, ['requires_payment_method', 'requires_confirmation', 'requires_action'], true)) {
             $pdo->prepare("UPDATE pagamentos SET estado='pendente', falhado_em=NULL, cancelado_em=NULL, atualizado_em=NOW() WHERE id=?")
                 ->execute([(int)$pag['id']]);
@@ -210,7 +215,7 @@ function checkout_preparar_intencao(
             ];
         }
 
-        if ($amountPi === $amountEsperado && $status === 'processing') {
+        if (!$customerDiferente && $amountPi === $amountEsperado && $status === 'processing') {
             $pdo->prepare("UPDATE pagamentos SET estado='em_processamento', falhado_em=NULL, atualizado_em=NOW() WHERE id=?")
                 ->execute([(int)$pag['id']]);
             return [
@@ -278,6 +283,7 @@ function checkout_preparar_intencao(
         'valor'        => $valor,
         'tipo'         => $tipo,
         'email'        => $email,
+        'customer_id'  => $customerId,
     ]);
     if (empty($pi['ok'])) {
         return ['ok' => false, 'erro' => (string)($pi['erro'] ?? 'Não foi possível iniciar o pagamento.')];

@@ -111,10 +111,10 @@ if (!headers_sent()) {
     header('X-Frame-Options: SAMEORIGIN');
     header('Referrer-Policy: strict-origin-when-cross-origin');
 
-    // O Payment Element da Stripe só é usado no checkout. As restantes páginas
+    // O Payment Element da Stripe é usado no checkout e na gestão de cartões. As restantes páginas
     // mantêm a CSP restritiva, sem autorizar scripts/frames de terceiros.
     $__paginaAtual = basename((string)parse_url((string)($_SERVER['REQUEST_URI'] ?? ''), PHP_URL_PATH));
-    $__checkoutStripe = ($__paginaAtual === 'checkout.php');
+    $__checkoutStripe = in_array($__paginaAtual, ['checkout.php', 'cartoes.php'], true);
 
     if ($__checkoutStripe) {
         header('Permissions-Policy: geolocation=(), microphone=(), camera=(), payment=(self "https://js.stripe.com")');
