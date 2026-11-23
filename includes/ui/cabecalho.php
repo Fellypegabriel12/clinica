@@ -117,6 +117,7 @@ if (!is_array($css_extra)) {
                     <?= e(conteudo('nav_clinica', 'Clínica')) ?> <span aria-hidden="true">▾</span>
                 </button>
                 <div id="menu-clinica-lista" class="menu-dropdown-lista">
+                    <a href="unidades.php"<?= $paginaAtual==='unidades.php'?' aria-current="page"':'' ?>>Unidades</a>
                     <a href="sobre.php"<?= $paginaAtual==='sobre.php'?' aria-current="page"':'' ?>><?= e(conteudo('nav_clinica_sobre', 'A Nossa Clínica')) ?></a>
                     <a href="blog.php"<?= $paginaAtual==='blog.php'?' aria-current="page"':'' ?>><?= e(conteudo('nav_clinica_blog', 'Informação ao paciente')) ?></a>
                     <a href="seguros-publico.php"<?= $paginaAtual==='seguros-publico.php'?' aria-current="page"':'' ?>><?= e(conteudo('nav_clinica_seguros', 'Seguros e acordos')) ?></a>
