@@ -863,13 +863,17 @@ a.dash-list-row:focus-visible {
     color: var(--primaria-texto);
     text-decoration: none;
 }
-.dash-action-disabled,
-.dash-action-disabled:hover {
-    opacity: 0.5;
-    cursor: default;
+.dash-action-cancelar {
+    color: var(--erro);
+    border-color: var(--erro);
     background: transparent;
-    color: var(--texto-fraco);
-    border-color: var(--borda);
+    cursor: pointer;
+}
+.dash-action-cancelar:hover,
+.dash-action-cancelar:focus-visible {
+    color: var(--erro);
+    border-color: var(--erro);
+    background: var(--erro-fundo);
 }
 
 /* ---------- Estado vazio ---------- */
