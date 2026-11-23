@@ -67,6 +67,51 @@ function unidades_decimal_form(?string $valor): ?float
     return is_numeric($valor) ? (float)$valor : null;
 }
 
+/**
+ * Garante no máximo uma unidade principal e nunca permite que esteja inativa.
+ * Se não existir uma unidade principal ativa, escolhe outra unidade ativa.
+ */
+function unidades_normalizar_principal(PDO $pdo, ?int $preferida = null, int $excluirId = 0): void
+{
+    $pdo->exec('UPDATE unidades SET principal = 0 WHERE ativo = 0 AND principal = 1');
+
+    $principalId = (int)($pdo->query(
+        'SELECT id FROM unidades WHERE ativo = 1 AND principal = 1 ORDER BY ordem, nome, id LIMIT 1'
+    )->fetchColumn() ?: 0);
+
+    if ($principalId > 0) {
+        $st = $pdo->prepare('UPDATE unidades SET principal = 0 WHERE principal = 1 AND id <> ?');
+        $st->execute([$principalId]);
+        return;
+    }
+
+    if ($preferida !== null && $preferida > 0) {
+        $st = $pdo->prepare('SELECT id FROM unidades WHERE id = ? AND ativo = 1 LIMIT 1');
+        $st->execute([$preferida]);
+        $principalId = (int)($st->fetchColumn() ?: 0);
+    }
+
+    if ($principalId <= 0) {
+        $st = $pdo->prepare(
+            'SELECT id FROM unidades WHERE ativo = 1 AND id <> ? ORDER BY ordem, nome, id LIMIT 1'
+        );
+        $st->execute([$excluirId]);
+        $principalId = (int)($st->fetchColumn() ?: 0);
+    }
+
+    if ($principalId <= 0) {
+        $principalId = (int)($pdo->query(
+            'SELECT id FROM unidades WHERE ativo = 1 ORDER BY ordem, nome, id LIMIT 1'
+        )->fetchColumn() ?: 0);
+    }
+
+    if ($principalId > 0) {
+        $pdo->exec('UPDATE unidades SET principal = 0 WHERE principal = 1');
+        $st = $pdo->prepare('UPDATE unidades SET principal = 1 WHERE id = ? AND ativo = 1');
+        $st->execute([$principalId]);
+    }
+}
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     csrf_validar();
     $acao = (string)($_POST['acao'] ?? '');
@@ -76,13 +121,30 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $st = $pdo->prepare('SELECT nome, ativo FROM unidades WHERE id = ?');
         $st->execute([$id]);
         $atual = $st->fetch();
+
         if ($atual) {
             $novoEstado = (int)!((int)$atual['ativo']);
-            $pdo->prepare('UPDATE unidades SET ativo = ? WHERE id = ?')->execute([$novoEstado, $id]);
-            registar_admin($novoEstado ? 'ativar_unidade' : 'desativar_unidade', 'unidades', $id, $atual['nome']);
-            flash_definir('sucesso', $novoEstado
-                ? 'Unidade ativada e publicada no globo.'
-                : 'Unidade desativada e removida do globo público.');
+            try {
+                $pdo->beginTransaction();
+                $pdo->prepare('UPDATE unidades SET ativo = ? WHERE id = ?')->execute([$novoEstado, $id]);
+                unidades_normalizar_principal(
+                    $pdo,
+                    $novoEstado === 1 ? $id : null,
+                    $novoEstado === 0 ? $id : 0
+                );
+                $pdo->commit();
+
+                registar_admin($novoEstado ? 'ativar_unidade' : 'desativar_unidade', 'unidades', $id, $atual['nome']);
+                flash_definir('sucesso', $novoEstado
+                    ? 'Unidade ativada e publicada no globo.'
+                    : 'Unidade desativada e removida do globo público.');
+            } catch (Throwable $e) {
+                if ($pdo->inTransaction()) {
+                    $pdo->rollBack();
+                }
+                error_log('Erro ao alterar estado da unidade: ' . $e->getMessage());
+                flash_definir('erro', 'Não foi possível alterar o estado da unidade.');
+            }
         } else {
             flash_definir('erro', 'A unidade selecionada já não existe.');
         }
@@ -97,14 +159,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $pdo->beginTransaction();
             try {
                 $pdo->prepare('DELETE FROM unidades WHERE id = ?')->execute([$id]);
-                if ((int)$atual['principal'] === 1) {
-                    $novaPrincipal = (int)($pdo->query(
-                        'SELECT id FROM unidades WHERE ativo = 1 ORDER BY ordem, nome LIMIT 1'
-                    )->fetchColumn() ?: 0);
-                    if ($novaPrincipal > 0) {
-                        $pdo->prepare('UPDATE unidades SET principal = 1 WHERE id = ?')->execute([$novaPrincipal]);
-                    }
-                }
+                unidades_normalizar_principal($pdo);
                 $pdo->commit();
                 registar_admin('eliminar_unidade', 'unidades', $id, $atual['nome']);
                 flash_definir('sucesso', 'Unidade eliminada. Já não aparece no globo público.');
@@ -168,6 +223,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($email !== '' && !filter_var($email, FILTER_VALIDATE_EMAIL)) {
             $erros[] = 'O endereço de email não é válido.';
         }
+        if ($form['principal'] === 1 && $form['ativo'] !== 1) {
+            $erros[] = 'A unidade principal tem de estar ativa e publicada.';
+        }
         if (($latOriginal === '') xor ($lngOriginal === '')) {
             $erros[] = 'Preenche as duas coordenadas ou deixa ambas vazias.';
         } elseif ($latOriginal !== '' && ($lat === null || $lng === null || $lat < -90 || $lat > 90 || $lng < -180 || $lng > 180)) {
@@ -224,6 +282,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $acaoRegisto = 'criar_unidade';
                 }
 
+                unidades_normalizar_principal(
+                    $pdo,
+                    $form['principal'] === 1 ? $idGuardado : null,
+                    $form['principal'] === 1 ? 0 : $idGuardado
+                );
                 $pdo->commit();
                 registar_admin($acaoRegisto, 'unidades', $idGuardado, $nome);
                 flash_definir('sucesso', $form['ativo']
