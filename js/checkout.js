@@ -69,8 +69,8 @@
 
     const elements = stripe.elements(options);
     const paymentElement = elements.create('payment', {
-        layout: { type: 'accordion', defaultCollapsed: false, visibleAccordionItemsCount: 1 },
-        paymentMethodOrder: ['card'],
+        layout: { type: 'accordion', defaultCollapsed: false, visibleAccordionItemsCount: 3 },
+        paymentMethodOrder: ['mb_way', 'multibanco', 'card'],
         wallets: { link: 'never', applePay: 'never', googlePay: 'never' },
         fields: {
             billingDetails: {
@@ -113,12 +113,10 @@
             return;
         }
 
-        const nomeTitular = holder ? holder.value.trim() : '';
-        if (nomeTitular === '') {
-            mostrarErro('Indica o nome do titular do cartão.');
-            if (holder) holder.focus();
-            return;
-        }
+        const emailValor = email ? email.value.trim() : '';
+        const nomeTitular = holder && holder.value.trim() !== ''
+            ? holder.value.trim()
+            : (emailValor || 'Paciente Clínica Dentária');
 
         if (button) {
             button.disabled = true;
@@ -127,7 +125,7 @@
 
         const billingDetails = {
             name: nomeTitular,
-            email: email ? email.value.trim() : ''
+            email: emailValor
         };
         if (telefone && telefone.value.trim() !== '') {
             billingDetails.phone = telefone.value.trim();
@@ -160,7 +158,11 @@
             return;
         }
 
-        if (paymentIntent && (paymentIntent.status === 'succeeded' || paymentIntent.status === 'processing')) {
+        if (paymentIntent && (
+            paymentIntent.status === 'succeeded' ||
+            paymentIntent.status === 'processing' ||
+            paymentIntent.status === 'requires_action'
+        )) {
             const destino = new URL(returnUrl, window.location.href);
             destino.searchParams.set('payment_intent', paymentIntent.id);
             destino.searchParams.set('redirect_status', paymentIntent.status);

@@ -168,7 +168,6 @@ final class GatewayStripe implements GatewayPagamento {
             'amount'                            => (string)$amount,
             'currency'                          => $moeda,
             'automatic_payment_methods[enabled]' => 'true',
-            'automatic_payment_methods[allow_redirects]' => 'never',
             'description'                       => mb_substr('Marcação ' . $ref, 0, 200),
             'metadata[marcacao_id]'             => (string)$marcacaoId,
             'metadata[pagamento_id]'            => (string)$pagamentoId,
